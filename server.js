@@ -1,181 +1,178 @@
+import express from "express"
 import TelegramBot from "node-telegram-bot-api"
 import fetch from "node-fetch"
 
 const TOKEN = process.env.TOKEN
+const PORT = process.env.PORT || 3000
 
-if(!TOKEN){
-console.log("❌ TOKEN NOT FOUND")
-process.exit(1)
-}
+const app = express()
 
-const bot = new TelegramBot(TOKEN,{ polling:true })
+const bot = new TelegramBot(TOKEN)
+
+const users = new Map()
 
 console.log("🚀 AZASAVED BOT STARTED")
 
-// ---------------- START ----------------
+app.use(express.json())
 
-bot.onText(/\/start/, (msg)=>{
+// анти спам
+function rateLimit(userId){
 
-const chatId = msg.chat.id
+const now = Date.now()
 
-bot.sendMessage(
-chatId,
-`👋 Добро пожаловать в AZASAVED BOT
-
-📥 Скачивай видео и фото из:
-• TikTok
-• Instagram
-
-Нажмите кнопку ниже и отправьте ссылку.`,
-{
-reply_markup:{
-keyboard:[
-["📥 Скачать медиа"],
-["ℹ️ Помощь","📢 Канал"],
-["👨‍💻 Разработчик"]
-],
-resize_keyboard:true
+if(!users.has(userId)){
+users.set(userId,now)
+return false
 }
+
+const last = users.get(userId)
+
+if(now - last < 3000){
+return true
 }
-)
 
-})
+users.set(userId,now)
 
-// ---------------- MESSAGE ----------------
+return false
+}
 
-bot.on("message", async (msg)=>{
+
+// WEBHOOK
+app.post(`/bot${TOKEN}`, async (req,res)=>{
+
+const msg = req.body.message
+
+if(!msg){
+res.sendStatus(200)
+return
+}
 
 const chatId = msg.chat.id
 const text = msg.text
 
-if(!text) return
+if(rateLimit(chatId)){
+bot.sendMessage(chatId,"⏳ Подождите пару секунд")
+return res.sendStatus(200)
+}
 
-// игнор команд
-if(text.startsWith("/")) return
+if(!text){
+return res.sendStatus(200)
+}
 
-// ---------- КНОПКИ ----------
 
+// START
+if(text === "/start"){
+
+bot.sendMessage(chatId,
+`👋 Добро пожаловать
+
+📥 Скачать видео:
+• TikTok
+• YouTube`,
+{
+reply_markup:{
+keyboard:[
+["📥 Скачать медиа"],
+["ℹ️ Помощь","📢 Канал"]
+],
+resize_keyboard:true
+}
+})
+
+return res.sendStatus(200)
+}
+
+
+// КНОПКИ
 if(text === "📥 Скачать медиа"){
-bot.sendMessage(chatId,"📥 Киньте ссылку на видео или фото")
-return
+bot.sendMessage(chatId,"📥 Отправь ссылку")
+return res.sendStatus(200)
 }
 
 if(text === "ℹ️ Помощь"){
-bot.sendMessage(
-chatId,
-`📖 Как пользоваться ботом
-
-1️⃣ Скопируй ссылку из TikTok или Instagram
-2️⃣ Отправь её боту
-3️⃣ Получи медиа за пару секунд`
-)
-return
+bot.sendMessage(chatId,"Отправь ссылку TikTok или YouTube")
+return res.sendStatus(200)
 }
 
 if(text === "📢 Канал"){
 bot.sendMessage(chatId,"https://t.me/AZATECHNOLOGY_FREE")
-return
+return res.sendStatus(200)
 }
 
-if(text === "👨‍💻 Разработчик"){
-bot.sendMessage(chatId,"👨‍💻 AZA Technology")
-return
+
+// ССЫЛКА
+if(!text.includes("http")){
+return res.sendStatus(200)
 }
-
-// ---------- НЕ ССЫЛКА ----------
-
-if(!text.includes("http")) return
 
 bot.sendMessage(chatId,"⏳ Скачиваю...")
 
+
 try{
 
-// =====================================================
 // TIKTOK
-// =====================================================
-
 if(text.includes("tiktok.com")){
 
 const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(text)}`
 
 const response = await fetch(api)
 
-const raw = await response.text()
-
-let data
-
-try{
-data = JSON.parse(raw)
-}catch{
-console.log("TikTok API ERROR:",raw)
-bot.sendMessage(chatId,"❌ TikTok API ошибка")
-return
-}
+const data = await response.json()
 
 if(data?.data?.play){
 
 await bot.sendVideo(chatId,data.data.play)
 
-bot.sendMessage(chatId,"⚡ Powered by AZA Technology")
+return res.sendStatus(200)
 
-return
-}
-
-}
-
-// =====================================================
-// INSTAGRAM
-// =====================================================
-
-if(text.includes("instagram.com")){
-
-const api = `https://api.vxtiktok.com/instagram?url=${encodeURIComponent(text)}`
-
-const response = await fetch(api)
-
-const raw = await response.text()
-
-let data
-
-try{
-data = JSON.parse(raw)
-}catch{
-console.log("Instagram API ERROR:",raw)
-bot.sendMessage(chatId,"❌ Instagram API ошибка")
-return
-}
-
-if(data?.media){
-
-for(const media of data.media){
-
-if(media.type === "video"){
-await bot.sendVideo(chatId,media.url)
-}
-
-if(media.type === "photo"){
-await bot.sendPhoto(chatId,media.url)
 }
 
 }
 
-bot.sendMessage(chatId,"⚡ Powered by AZA Technology")
 
-return
+// YOUTUBE
+if(text.includes("youtube.com") || text.includes("youtu.be")){
+
+const api = "https://api.cobalt.tools/api/json"
+
+const response = await fetch(api,{
+method:"POST",
+headers:{
+"Content-Type":"application/json"
+},
+body:JSON.stringify({
+url:text
+})
+})
+
+const data = await response.json()
+
+if(data?.url){
+
+await bot.sendVideo(chatId,data.url)
+
+return res.sendStatus(200)
+
 }
 
 }
-
-// ---------- НЕ СКАЧАЛОСЬ ----------
 
 bot.sendMessage(chatId,"❌ Не удалось скачать")
 
 }catch(err){
 
-console.log("DOWNLOAD ERROR:",err)
+console.log(err)
 
 bot.sendMessage(chatId,"❌ Ошибка скачивания")
 
 }
+
+res.sendStatus(200)
+
+})
+
+app.listen(PORT,()=>{
+
+console.log("Server running")
 
 })
