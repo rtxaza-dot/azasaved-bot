@@ -1,38 +1,27 @@
 import TelegramBot from "node-telegram-bot-api"
 import fetch from "node-fetch"
-import express from "express"
-import dotenv from "dotenv"
-
-dotenv.config()
 
 const TOKEN = process.env.TOKEN
-const PORT = process.env.PORT || 3000
 
-const bot = new TelegramBot(TOKEN)
-const app = express()
-
-const cache = new Map()
+const bot = new TelegramBot(TOKEN,{ polling:true })
 
 console.log("🚀 AZASAVED BOT STARTED")
 
-// WEBHOOK
-bot.setWebHook(`https://yourdomain.com/bot${TOKEN}`)
+// кеш видео
+const cache = new Map()
 
-app.use(express.json())
-
-app.post(`/bot${TOKEN}`, (req,res)=>{
-bot.processUpdate(req.body)
-res.sendStatus(200)
-})
-
+// антиспам
+const cooldown = new Map()
 
 // START
 bot.onText(/\/start/, (msg)=>{
 
-bot.sendMessage(msg.chat.id,
+const chatId = msg.chat.id
+
+bot.sendMessage(chatId,
 `👋 Добро пожаловать в AZASAVED BOT
 
-📥 Поддержка:
+📥 Скачивай медиа из:
 • TikTok
 • Instagram
 
@@ -51,21 +40,73 @@ resize_keyboard:true
 })
 
 
-// СООБЩЕНИЯ
+// MESSAGE
 bot.on("message", async(msg)=>{
 
 const chatId = msg.chat.id
 const text = msg.text
 
 if(!text || text.startsWith("/")) return
+
+
+// анти спам
+const now = Date.now()
+const last = cooldown.get(chatId)
+
+if(last && now - last < 3000){
+bot.sendMessage(chatId,"⏳ Подождите пару секунд")
+return
+}
+
+cooldown.set(chatId,now)
+
+
+// помощь
+if(text === "ℹ️ Помощь"){
+bot.sendMessage(chatId,
+`📖 Как пользоваться
+
+1️⃣ Скопируйте ссылку
+2️⃣ Отправьте её боту
+3️⃣ Получите медиа`)
+return
+}
+
+
+// канал
+if(text === "📢 Канал"){
+bot.sendMessage(chatId,
+`📢 Наш канал
+
+https://t.me/AZATECHNOLOGY_FREE`)
+return
+}
+
+
+// разработчик
+if(text === "👨‍💻 Разработчик"){
+bot.sendMessage(chatId,"👨‍💻 Создатель: AZA Technology")
+return
+}
+
+
+// кнопка скачать
+if(text === "📥 Скачать медиа"){
+bot.sendMessage(chatId,"📥 Отправьте ссылку TikTok или Instagram")
+return
+}
+
+
+// если не ссылка
 if(!text.includes("http")) return
 
-bot.sendMessage(chatId,"⚡ Получаю медиа...")
+
+bot.sendMessage(chatId,"⏳ Получаю медиа...")
 
 try{
 
 // TIKTOK
-if(text.includes("tiktok")){
+if(text.includes("tiktok.com")){
 
 const api = `https://www.tikwm.com/api/?url=${text}`
 
@@ -96,7 +137,7 @@ inline_keyboard:[
 
 
 // INSTAGRAM
-if(text.includes("instagram")){
+if(text.includes("instagram.com")){
 
 const api = `https://api.vreden.my.id/api/igdl?url=${text}`
 
@@ -118,14 +159,15 @@ await bot.sendPhoto(chatId,media.url)
 }catch(err){
 
 console.log(err)
-bot.sendMessage(chatId,"❌ Не удалось скачать")
+
+bot.sendMessage(chatId,"❌ Ошибка скачивания")
 
 }
 
 })
 
 
-// INLINE КНОПКИ
+// КНОПКИ КАЧЕСТВА
 bot.on("callback_query", async(query)=>{
 
 const data = query.data
@@ -145,10 +187,4 @@ if(quality === "sd"){
 await bot.sendVideo(chatId,video.sd)
 }
 
-})
-
-
-// SERVER
-app.listen(PORT,()=>{
-console.log("SERVER RUNNING "+PORT)
 })
