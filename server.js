@@ -1,5 +1,5 @@
 import TelegramBot from "node-telegram-bot-api"
-
+import fetch from "node-fetch"
 const TOKEN = process.env.TOKEN
 
 const bot = new TelegramBot(TOKEN, { polling: true })
@@ -117,3 +117,4 @@ bot.sendMessage(chatId,"❌ Не удалось скачать")
 }
 
 })
+
