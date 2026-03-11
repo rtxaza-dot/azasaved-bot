@@ -1,80 +1,86 @@
-import TelegramBot from "node-telegram-bot-api";
+import TelegramBot from "node-telegram-bot-api"
+import fetch from "node-fetch"
 
-// Замени на свой токен или используй process.env.TOKEN
-const TOKEN = process.env.TOKEN;
+const TOKEN = process.env.TOKEN
 
-const bot = new TelegramBot(TOKEN, { polling: true });
+const bot = new TelegramBot(TOKEN, { polling: true })
 
-console.log("✅ Бот запущен и готов к работе!");
+console.log("🚀 AZASAVED BOT STARTED")
 
-// Команда /start
+// команда /start
 bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, "🤖 Привет! Я помогу скачать видео.\n\nОтправь мне ссылку на **TikTok** или **YouTube (Shorts)**.");
-});
+  const chatId = msg.chat.id
 
-// Основная логика обработки сообщений
-bot.on("message", async (msg) => {
-    const text = msg.text;
-    const chatId = msg.chat.id;
+  bot.sendMessage(
+    chatId,
+    `👋 Добро пожаловать в AZASAVED BOT
 
-    // Игнорируем команды и пустые сообщения
-    if (!text || text.startsWith("/")) return;
-
-    const statusMsg = await bot.sendMessage(chatId, "⏳ Обработка ссылки...");
-
-    try {
-        let videoUrl = null;
-
-        // --- ЛОГИКА ДЛЯ TIKTOK ---
-        if (text.includes("tiktok.com")) {
-            const res = await fetch(`https://www.tikwm.com/api/?url=${encodeURIComponent(text)}`);
-            const data = await res.json();
-            
-            if (data?.data?.play) {
-                videoUrl = data.data.play;
-            }
-        }
-
-        // --- ЛОГИКА ДЛЯ YOUTUBE & SHORTS ---
-        else if (text.includes("youtube.com") || text.includes("youtu.be")) {
-            const res = await fetch("https://api.cobalt.tools/api/json", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Accept": "application/json"
-                },
-                body: JSON.stringify({
-                    url: text,
-                    videoQuality: "720",
-                    filenamePattern: "basic"
-                })
-            });
-
-            const data = await res.json();
-            
-            // Cobalt может вернуть ссылку в разных полях в зависимости от типа контента
-            videoUrl = data.url || data.stream || (data.picker && data.picker[0]?.url);
-        }
-
-        // --- ОТПРАВКА РЕЗУЛЬТАТА ---
-        if (videoUrl) {
-            await bot.sendVideo(chatId, videoUrl, {
-                reply_to_message_id: msg.message_id
-            });
-            // Удаляем сообщение о загрузке, чтобы не мешало
-            bot.deleteMessage(chatId, statusMsg.message_id).catch(() => {});
-        } else {
-            bot.editMessageText("❌ Не удалось получить прямую ссылку на видео. Возможно, оно защищено или сервер перегружен.", {
-                chat_id: chatId,
-                message_id: statusMsg.message_id
-            });
-        }
-
-    } catch (error) {
-        console.error("Ошибка при скачивании:", error);
-        bot.editMessageText("❌ Произошла ошибка на сервере. Попробуй позже.", {
-            chat_id: chatId,
-            message_id: statusMsg.message_id
-        });
+📥 Отправь ссылку TikTok и я скачаю видео без водяного знака ⚡`,
+    {
+      reply_markup: {
+        keyboard: [
+          ["📥 Скачать TikTok"],
+          ["ℹ️ Помощь", "📢 Канал"]
+        ],
+        resize_keyboard: true
+      }
     }
-});
+  )
+})
+
+bot.on("message", async (msg) => {
+  const chatId = msg.chat.id
+  const text = msg.text
+
+  if (!text) return
+  if (text.startsWith("/")) return
+
+  // кнопка скачать
+  if (text === "📥 Скачать TikTok") {
+    bot.sendMessage(chatId, "📥 Отправь ссылку TikTok")
+    return
+  }
+
+  // помощь
+  if (text === "ℹ️ Помощь") {
+    bot.sendMessage(
+      chatId,
+      `📖 Как пользоваться
+
+1️⃣ Скопируй ссылку TikTok
+2️⃣ Отправь её боту
+3️⃣ Получи видео без водяного знака`
+    )
+    return
+  }
+
+  // канал
+  if (text === "📢 Канал") {
+    bot.sendMessage(chatId, "https://t.me/AZATECHNOLOGY_FREE")
+    return
+  }
+
+  // проверка ссылки
+  if (!text.includes("tiktok.com")) {
+    bot.sendMessage(chatId, "❌ Это не ссылка TikTok")
+    return
+  }
+
+  bot.sendMessage(chatId, "⏳ Скачиваю...")
+
+  try {
+    const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(text)}`
+    const res = await fetch(api)
+    const data = await res.json()
+
+    if (data?.data?.play) {
+      await bot.sendVideo(chatId, data.data.play)
+      bot.sendMessage(chatId, "⚡ Powered by AZA Technology")
+    } else {
+      bot.sendMessage(chatId, "❌ Не удалось скачать видео")
+    }
+  } catch (err) {
+    console.log(err)
+    bot.sendMessage(chatId, "❌ Ошибка скачивания")
+  }
+})
