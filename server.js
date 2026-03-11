@@ -11,39 +11,42 @@ const MONGO_URI = process.env.MONGO_URI
 const PORT = process.env.PORT || 3000
 
 // =================
-// EXPRESS
+// EXPRESS (для Railway)
 // =================
 
 const app = express()
 
 app.get("/", (req,res)=>{
-res.send("BOT RUNNING 🚀")
+res.send("🚀 BOT RUNNING")
 })
 
 app.listen(PORT,()=>{
-console.log("Server running",PORT)
+console.log("Server running on port",PORT)
 })
+
 
 // =================
 // MONGODB
 // =================
 
 mongoose.connect(MONGO_URI)
-.then(()=>console.log("MongoDB connected"))
+.then(()=>console.log("✅ MongoDB connected"))
 .catch(err=>console.log(err))
 
 const User = mongoose.model("User",{ userId:Number })
+
 
 // =================
 // TELEGRAM BOT
 // =================
 
-const bot = new TelegramBot(TOKEN,{polling:true})
+const bot = new TelegramBot(TOKEN,{ polling:true })
 
-console.log("BOT STARTED")
+console.log("🤖 BOT STARTED")
+
 
 // =================
-// КЭШ (ускоряет работу)
+// CACHE
 // =================
 
 const cache = new Map()
@@ -53,15 +56,13 @@ return cache.get(url)
 }
 
 function saveCache(url,data){
-
 cache.set(url,{
 data,
 time:Date.now()
 })
-
 }
 
-// очищаем старый кэш каждые 30 минут
+// очистка кэша
 setInterval(()=>{
 
 const now = Date.now()
@@ -78,7 +79,7 @@ cache.delete(key)
 
 
 // =================
-// АНТИСПАМ
+// ANTISPAM
 // =================
 
 const cooldown = new Map()
@@ -114,21 +115,31 @@ if(!exist){
 await User.create({userId})
 }
 
-bot.sendMessage(chatId,
-`🚀 AZASAVED BOT
+bot.sendMessage(
+chatId,
+`👋 Добро пожаловать в AZASAVED BOT
 
 📥 Отправь ссылку:
 
 • TikTok
 • Instagram
-• YouTube`
+• YouTube`,
+{
+reply_markup:{
+keyboard:[
+["📥 Скачать видео"],
+["ℹ️ Помощь","📢 Канал"]
+],
+resize_keyboard:true
+}
+}
 )
 
 })
 
 
 // =================
-// ОБРАБОТКА
+// MESSAGE
 // =================
 
 bot.on("message", async (msg)=>{
@@ -140,6 +151,30 @@ const userId = msg.from.id
 if(!text) return
 if(text.startsWith("/")) return
 
+
+// кнопки
+if(text === "📥 Скачать видео"){
+bot.sendMessage(chatId,"📥 Отправь ссылку")
+return
+}
+
+if(text === "ℹ️ Помощь"){
+bot.sendMessage(chatId,
+`📖 Инструкция
+
+1️⃣ Скопируй ссылку
+2️⃣ Отправь боту
+3️⃣ Получи видео`)
+return
+}
+
+if(text === "📢 Канал"){
+bot.sendMessage(chatId,"https://t.me/AZATECHNOLOGY_FREE")
+return
+}
+
+
+// антиспам
 if(antiSpam(userId)){
 bot.sendMessage(chatId,"⏳ Подожди...")
 return
@@ -147,10 +182,11 @@ return
 
 const loading = await bot.sendMessage(chatId,"⚡ Загружаю...")
 
+
 try{
 
 // =================
-// КЭШ
+// CACHE
 // =================
 
 const cached = getCache(text)
@@ -248,7 +284,7 @@ caption:"📺 YouTube"
 
 console.log(err)
 
-bot.sendMessage(chatId,"❌ Ошибка")
+bot.sendMessage(chatId,"❌ Ошибка скачивания")
 
 }
 
