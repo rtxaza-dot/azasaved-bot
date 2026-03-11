@@ -21,9 +21,7 @@ bot.sendMessage(chatId,
 
 📥 Скачивай видео из:
 • TikTok
-• Instagram
-
-Нажмите кнопку ниже`,
+• Instagram`,
 {
 reply_markup:{
 keyboard:[
@@ -59,9 +57,17 @@ return
 cooldown.set(chatId,now)
 
 
-// КНОПКА СКАЧАТЬ
+// кнопка скачать
 if(text === "📥 Скачать видео"){
-bot.sendMessage(chatId,"📥 Отправьте ссылку TikTok или Instagram")
+
+bot.sendMessage(chatId,
+"📥 Скиньте ссылку TikTok или Instagram",
+{
+reply_markup:{
+force_reply:true
+}
+})
+
 return
 }
 
@@ -99,7 +105,14 @@ return
 if(!text.includes("http")) return
 
 
-bot.sendMessage(chatId,"⏳ Получаю видео...")
+// сообщение загрузки
+const loading = await bot.sendMessage(chatId,"⏳ Получаю видео.")
+
+
+// анимация
+setTimeout(()=>bot.editMessageText("⏳ Получаю видео..",{chat_id:chatId,message_id:loading.message_id}),500)
+setTimeout(()=>bot.editMessageText("⏳ Получаю видео...",{chat_id:chatId,message_id:loading.message_id}),1000)
+
 
 try{
 
@@ -119,9 +132,10 @@ hd:data.data.hdplay,
 sd:data.data.play
 })
 
-bot.sendMessage(chatId,
-"🎬 Выберите качество",
+await bot.editMessageText("🎬 Выберите качество",
 {
+chat_id:chatId,
+message_id:loading.message_id,
 reply_markup:{
 inline_keyboard:[
 [
@@ -142,6 +156,8 @@ const api = `https://api.ryzendesu.vip/api/downloader/igdl?url=${text}`
 
 const res = await fetch(api)
 const data = await res.json()
+
+await bot.deleteMessage(chatId,loading.message_id)
 
 if(data.media){
 
@@ -167,7 +183,7 @@ bot.sendMessage(chatId,"❌ Ошибка скачивания")
 })
 
 
-// КНОПКИ КАЧЕСТВА
+// кнопки качества
 bot.on("callback_query", async(query)=>{
 
 const data = query.data
