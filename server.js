@@ -1,178 +1,68 @@
-import express from "express"
 import TelegramBot from "node-telegram-bot-api"
 import fetch from "node-fetch"
 
 const TOKEN = process.env.TOKEN
-const PORT = process.env.PORT || 3000
 
-const app = express()
+const bot = new TelegramBot(TOKEN,{polling:true})
 
-const bot = new TelegramBot(TOKEN)
+console.log("BOT STARTED")
 
-const users = new Map()
+bot.onText(/\/start/, (msg)=>{
 
-console.log("🚀 AZASAVED BOT STARTED")
+bot.sendMessage(msg.chat.id,"Отправь ссылку TikTok или YouTube")
 
-app.use(express.json())
-
-// анти спам
-function rateLimit(userId){
-
-const now = Date.now()
-
-if(!users.has(userId)){
-users.set(userId,now)
-return false
-}
-
-const last = users.get(userId)
-
-if(now - last < 3000){
-return true
-}
-
-users.set(userId,now)
-
-return false
-}
-
-
-// WEBHOOK
-app.post(`/bot${TOKEN}`, async (req,res)=>{
-
-const msg = req.body.message
-
-if(!msg){
-res.sendStatus(200)
-return
-}
-
-const chatId = msg.chat.id
-const text = msg.text
-
-if(rateLimit(chatId)){
-bot.sendMessage(chatId,"⏳ Подождите пару секунд")
-return res.sendStatus(200)
-}
-
-if(!text){
-return res.sendStatus(200)
-}
-
-
-// START
-if(text === "/start"){
-
-bot.sendMessage(chatId,
-`👋 Добро пожаловать
-
-📥 Скачать видео:
-• TikTok
-• YouTube`,
-{
-reply_markup:{
-keyboard:[
-["📥 Скачать медиа"],
-["ℹ️ Помощь","📢 Канал"]
-],
-resize_keyboard:true
-}
 })
 
-return res.sendStatus(200)
-}
+bot.on("message", async (msg)=>{
 
+const text = msg.text
+const chatId = msg.chat.id
 
-// КНОПКИ
-if(text === "📥 Скачать медиа"){
-bot.sendMessage(chatId,"📥 Отправь ссылку")
-return res.sendStatus(200)
-}
-
-if(text === "ℹ️ Помощь"){
-bot.sendMessage(chatId,"Отправь ссылку TikTok или YouTube")
-return res.sendStatus(200)
-}
-
-if(text === "📢 Канал"){
-bot.sendMessage(chatId,"https://t.me/AZATECHNOLOGY_FREE")
-return res.sendStatus(200)
-}
-
-
-// ССЫЛКА
-if(!text.includes("http")){
-return res.sendStatus(200)
-}
+if(!text) return
+if(text.startsWith("/")) return
 
 bot.sendMessage(chatId,"⏳ Скачиваю...")
 
-
 try{
 
-// TIKTOK
+// TikTok
 if(text.includes("tiktok.com")){
 
-const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(text)}`
+const res = await fetch(`https://www.tikwm.com/api/?url=${encodeURIComponent(text)}`)
+const data = await res.json()
 
-const response = await fetch(api)
-
-const data = await response.json()
-
-if(data?.data?.play){
-
+if(data.data.play){
 await bot.sendVideo(chatId,data.data.play)
-
-return res.sendStatus(200)
-
+return
 }
 
 }
 
-
-// YOUTUBE
+// YouTube
 if(text.includes("youtube.com") || text.includes("youtu.be")){
 
-const api = "https://api.cobalt.tools/api/json"
-
-const response = await fetch(api,{
+const res = await fetch("https://api.cobalt.tools/api/json",{
 method:"POST",
-headers:{
-"Content-Type":"application/json"
-},
-body:JSON.stringify({
-url:text
-})
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify({url:text})
 })
 
-const data = await response.json()
+const data = await res.json()
 
-if(data?.url){
-
+if(data.url){
 await bot.sendVideo(chatId,data.url)
-
-return res.sendStatus(200)
-
+return
 }
 
 }
 
 bot.sendMessage(chatId,"❌ Не удалось скачать")
 
-}catch(err){
+}catch(e){
 
-console.log(err)
-
-bot.sendMessage(chatId,"❌ Ошибка скачивания")
+console.log(e)
+bot.sendMessage(chatId,"❌ Ошибка")
 
 }
-
-res.sendStatus(200)
-
-})
-
-app.listen(PORT,()=>{
-
-console.log("Server running")
 
 })
