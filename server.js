@@ -8,16 +8,13 @@ dotenv.config()
 
 const TOKEN = process.env.TOKEN
 const MONGO_URI = process.env.MONGO_URI
-const PORT = process.env.PORT || 3000
+const PORT = process.env.PORT || 8080
 
-// =================
 // EXPRESS (для Railway)
-// =================
-
 const app = express()
 
 app.get("/", (req,res)=>{
-res.send("🚀 BOT RUNNING")
+res.send("BOT RUNNING 🚀")
 })
 
 app.listen(PORT,()=>{
@@ -26,18 +23,23 @@ console.log("Server running on port",PORT)
 
 
 // =================
-// MONGODB
+// MongoDB
 // =================
 
-mongoose.connect(MONGO_URI)
-.then(()=>console.log("✅ MongoDB connected"))
-.catch(err=>console.log(err))
+mongoose.connect(MONGO_URI,{
+useNewUrlParser:true,
+useUnifiedTopology:true
+})
+.then(()=>console.log("MongoDB connected"))
+.catch(err=>console.log("Mongo error:",err))
 
-const User = mongoose.model("User",{ userId:Number })
+const User = mongoose.model("User",{
+userId:Number
+})
 
 
 // =================
-// TELEGRAM BOT
+// Telegram BOT
 // =================
 
 const bot = new TelegramBot(TOKEN,{ polling:true })
@@ -56,13 +58,15 @@ return cache.get(url)
 }
 
 function saveCache(url,data){
+
 cache.set(url,{
 data,
 time:Date.now()
 })
+
 }
 
-// очистка кэша
+// очистка старого кэша
 setInterval(()=>{
 
 const now = Date.now()
@@ -109,30 +113,23 @@ bot.onText(/\/start/, async (msg)=>{
 const chatId = msg.chat.id
 const userId = msg.from.id
 
+try{
+
 const exist = await User.findOne({userId})
 
 if(!exist){
 await User.create({userId})
 }
 
-bot.sendMessage(
-chatId,
+}catch(err){
+console.log("DB error:",err)
+}
+
+bot.sendMessage(chatId,
 `👋 Добро пожаловать в AZASAVED BOT
 
-📥 Отправь ссылку:
-
-• TikTok
-• Instagram
-• YouTube`,
-{
-reply_markup:{
-keyboard:[
-["📥 Скачать видео"],
-["ℹ️ Помощь","📢 Канал"]
-],
-resize_keyboard:true
-}
-}
+📥 Отправь ссылку TikTok
+и бот скачает видео без водяного знака ⚡`
 )
 
 })
@@ -151,44 +148,16 @@ const userId = msg.from.id
 if(!text) return
 if(text.startsWith("/")) return
 
-
-// кнопки
-if(text === "📥 Скачать видео"){
-bot.sendMessage(chatId,"📥 Отправь ссылку")
-return
-}
-
-if(text === "ℹ️ Помощь"){
-bot.sendMessage(chatId,
-`📖 Инструкция
-
-1️⃣ Скопируй ссылку
-2️⃣ Отправь боту
-3️⃣ Получи видео`)
-return
-}
-
-if(text === "📢 Канал"){
-bot.sendMessage(chatId,"https://t.me/AZATECHNOLOGY_FREE")
-return
-}
-
-
-// антиспам
 if(antiSpam(userId)){
-bot.sendMessage(chatId,"⏳ Подожди...")
+bot.sendMessage(chatId,"⏳ Подожди немного...")
 return
 }
 
 const loading = await bot.sendMessage(chatId,"⚡ Загружаю...")
 
-
 try{
 
-// =================
 // CACHE
-// =================
-
 const cached = getCache(text)
 
 if(cached){
@@ -203,9 +172,7 @@ return
 }
 
 
-// =================
 // TIKTOK
-// =================
 
 if(text.includes("tiktok.com")){
 
@@ -221,62 +188,18 @@ if(data?.data?.play){
 saveCache(text,data.data.play)
 
 await bot.sendVideo(chatId,data.data.play,{
-caption:"🎬 TikTok"
+caption:"🎬 TikTok | Powered by AZA Technology"
 })
 
-}
+}else{
+
+bot.sendMessage(chatId,"❌ Не удалось скачать видео")
 
 }
 
+}else{
 
-// =================
-// INSTAGRAM
-// =================
-
-else if(text.includes("instagram.com")){
-
-const api = `https://api.vxtiktok.com/instagram?url=${encodeURIComponent(text)}`
-
-const res = await fetch(api)
-const data = await res.json()
-
-await bot.deleteMessage(chatId,loading.message_id)
-
-if(data?.video){
-
-saveCache(text,data.video)
-
-await bot.sendVideo(chatId,data.video,{
-caption:"📸 Instagram"
-})
-
-}
-
-}
-
-
-// =================
-// YOUTUBE
-// =================
-
-else if(text.includes("youtube.com") || text.includes("youtu.be")){
-
-const api = `https://api.vxtiktok.com/youtube?url=${encodeURIComponent(text)}`
-
-const res = await fetch(api)
-const data = await res.json()
-
-await bot.deleteMessage(chatId,loading.message_id)
-
-if(data?.video){
-
-saveCache(text,data.video)
-
-await bot.sendVideo(chatId,data.video,{
-caption:"📺 YouTube"
-})
-
-}
+bot.sendMessage(chatId,"❌ Это не ссылка TikTok")
 
 }
 
@@ -295,5 +218,10 @@ bot.sendMessage(chatId,"❌ Ошибка скачивания")
 // НЕ ПАДАТЬ
 // =================
 
-process.on("unhandledRejection",console.error)
-process.on("uncaughtException",console.error)
+process.on("unhandledRejection",(err)=>{
+console.log("UNHANDLED:",err)
+})
+
+process.on("uncaughtException",(err)=>{
+console.log("EXCEPTION:",err)
+})
