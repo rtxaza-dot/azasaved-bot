@@ -4,11 +4,11 @@ import fetch from "node-fetch"
 const TOKEN = process.env.TOKEN
 
 if(!TOKEN){
-console.log("❌ BOT TOKEN NOT FOUND")
+console.log("❌ TOKEN not found")
 process.exit(1)
 }
 
-const bot = new TelegramBot(TOKEN,{ polling:true })
+const bot = new TelegramBot(TOKEN,{polling:true})
 
 console.log("🚀 AZASAVED BOT STARTED")
 
@@ -46,14 +46,10 @@ const chatId = msg.chat.id
 const text = msg.text
 
 if(!text) return
-
-// игнор команд
 if(text.startsWith("/")) return
 
 
-// =================
 // КНОПКИ
-// =================
 
 if(text === "📥 Скачать медиа"){
 bot.sendMessage(chatId,"📥 Киньте ссылку на видео или фото")
@@ -66,20 +62,17 @@ bot.sendMessage(chatId,
 
 1️⃣ Скопируй ссылку из TikTok или Instagram
 2️⃣ Отправь её боту
-3️⃣ Получи медиа за пару секунд`)
+3️⃣ Получи медиа`)
 return
 }
 
 if(text === "📢 Канал"){
-bot.sendMessage(chatId,
-`📢 Подпишитесь на канал
-
-https://t.me/AZATECHNOLOGY_FREE`)
+bot.sendMessage(chatId,"https://t.me/AZATECHNOLOGY_FREE")
 return
 }
 
 if(text === "👨‍💻 Разработчик"){
-bot.sendMessage(chatId,"👨‍💻 Создатель: AZA Technology")
+bot.sendMessage(chatId,"👨‍💻 AZA Technology")
 return
 }
 
@@ -101,9 +94,19 @@ if(text.includes("tiktok.com")){
 const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(text)}`
 
 const res = await fetch(api)
-const data = await res.json()
+const textData = await res.text()
 
-if(data && data.data && data.data.play){
+let data
+
+try{
+data = JSON.parse(textData)
+}catch{
+console.log("TikTok API ERROR:", textData)
+bot.sendMessage(chatId,"❌ TikTok API ошибка")
+return
+}
+
+if(data?.data?.play){
 
 await bot.sendVideo(chatId,data.data.play)
 
@@ -124,9 +127,19 @@ if(text.includes("instagram.com")){
 const api = `https://api.neoxr.eu/api/igdl?url=${encodeURIComponent(text)}`
 
 const res = await fetch(api)
-const data = await res.json()
+const textData = await res.text()
 
-if(data && data.status && data.data){
+let data
+
+try{
+data = JSON.parse(textData)
+}catch{
+console.log("Instagram API ERROR:", textData)
+bot.sendMessage(chatId,"❌ Instagram API ошибка")
+return
+}
+
+if(data?.status && data?.data){
 
 for(const media of data.data){
 
