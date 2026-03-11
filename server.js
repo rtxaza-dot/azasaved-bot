@@ -4,20 +4,22 @@ import fetch from "node-fetch"
 const TOKEN = process.env.TOKEN
 
 if(!TOKEN){
-console.log("❌ TOKEN not found")
+console.log("❌ TOKEN NOT FOUND")
 process.exit(1)
 }
 
-const bot = new TelegramBot(TOKEN,{polling:true})
+const bot = new TelegramBot(TOKEN,{ polling:true })
 
 console.log("🚀 AZASAVED BOT STARTED")
 
-// START
+// ---------------- START ----------------
+
 bot.onText(/\/start/, (msg)=>{
 
 const chatId = msg.chat.id
 
-bot.sendMessage(chatId,
+bot.sendMessage(
+chatId,
 `👋 Добро пожаловать в AZASAVED BOT
 
 📥 Скачивай видео и фото из:
@@ -34,22 +36,24 @@ keyboard:[
 ],
 resize_keyboard:true
 }
-})
+}
+)
 
 })
 
+// ---------------- MESSAGE ----------------
 
-// ВСЕ СООБЩЕНИЯ
 bot.on("message", async (msg)=>{
 
 const chatId = msg.chat.id
 const text = msg.text
 
 if(!text) return
+
+// игнор команд
 if(text.startsWith("/")) return
 
-
-// КНОПКИ
+// ---------- КНОПКИ ----------
 
 if(text === "📥 Скачать медиа"){
 bot.sendMessage(chatId,"📥 Киньте ссылку на видео или фото")
@@ -57,12 +61,14 @@ return
 }
 
 if(text === "ℹ️ Помощь"){
-bot.sendMessage(chatId,
+bot.sendMessage(
+chatId,
 `📖 Как пользоваться ботом
 
 1️⃣ Скопируй ссылку из TikTok или Instagram
 2️⃣ Отправь её боту
-3️⃣ Получи медиа`)
+3️⃣ Получи медиа за пару секунд`
+)
 return
 }
 
@@ -76,32 +82,32 @@ bot.sendMessage(chatId,"👨‍💻 AZA Technology")
 return
 }
 
+// ---------- НЕ ССЫЛКА ----------
 
-// если это не ссылка
 if(!text.includes("http")) return
-
 
 bot.sendMessage(chatId,"⏳ Скачиваю...")
 
 try{
 
-// =================
+// =====================================================
 // TIKTOK
-// =================
+// =====================================================
 
 if(text.includes("tiktok.com")){
 
 const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(text)}`
 
-const res = await fetch(api)
-const textData = await res.text()
+const response = await fetch(api)
+
+const raw = await response.text()
 
 let data
 
 try{
-data = JSON.parse(textData)
+data = JSON.parse(raw)
 }catch{
-console.log("TikTok API ERROR:", textData)
+console.log("TikTok API ERROR:",raw)
 bot.sendMessage(chatId,"❌ TikTok API ошибка")
 return
 }
@@ -117,35 +123,37 @@ return
 
 }
 
-
-// =================
+// =====================================================
 // INSTAGRAM
-// =================
+// =====================================================
 
 if(text.includes("instagram.com")){
 
-const api = `https://api.neoxr.eu/api/igdl?url=${encodeURIComponent(text)}`
+const api = `https://api.vxtiktok.com/instagram?url=${encodeURIComponent(text)}`
 
-const res = await fetch(api)
-const textData = await res.text()
+const response = await fetch(api)
+
+const raw = await response.text()
 
 let data
 
 try{
-data = JSON.parse(textData)
+data = JSON.parse(raw)
 }catch{
-console.log("Instagram API ERROR:", textData)
+console.log("Instagram API ERROR:",raw)
 bot.sendMessage(chatId,"❌ Instagram API ошибка")
 return
 }
 
-if(data?.status && data?.data){
+if(data?.media){
 
-for(const media of data.data){
+for(const media of data.media){
 
 if(media.type === "video"){
 await bot.sendVideo(chatId,media.url)
-}else{
+}
+
+if(media.type === "photo"){
 await bot.sendPhoto(chatId,media.url)
 }
 
@@ -157,6 +165,8 @@ return
 }
 
 }
+
+// ---------- НЕ СКАЧАЛОСЬ ----------
 
 bot.sendMessage(chatId,"❌ Не удалось скачать")
 
