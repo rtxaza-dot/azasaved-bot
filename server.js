@@ -8,49 +8,41 @@ dotenv.config()
 const TOKEN = process.env.TOKEN
 const PORT = process.env.PORT || 8080
 
-// ===== EXPRESS (для Railway) =====
 const app = express()
 
-app.get("/", (req,res)=>{
-  res.send("AZASAVED BOT RUNNING 🚀")
+app.get("/",(req,res)=>{
+res.send("AZASAVED BOT PRO RUNNING 🚀")
 })
 
 app.listen(PORT,()=>{
-  console.log("Server running on port",PORT)
+console.log("Server running on port",PORT)
 })
 
-// ===== TELEGRAM BOT =====
-const bot = new TelegramBot(TOKEN,{ polling:true })
+const bot = new TelegramBot(TOKEN,{polling:true})
 
-console.log("🤖 BOT STARTED")
+console.log("🤖 BOT PRO STARTED")
 
-// ===== ANTISPAM =====
-const cooldown = new Map()
+// =================
+// CACHE (ускорение)
+// =================
 
-function antiSpam(userId){
-  const now = Date.now()
+const cache = new Map()
 
-  if(cooldown.has(userId)){
-    if(now - cooldown.get(userId) < 2000){
-      return true
-    }
-  }
+// =================
+// START
+// =================
 
-  cooldown.set(userId,now)
-  return false
-}
-
-// ===== START =====
-bot.onText(/\/start/, (msg)=>{
-
-const chatId = msg.chat.id
+bot.onText(/\/start/,(msg)=>{
 
 bot.sendMessage(
-chatId,
-`👋 Добро пожаловать в AZASAVED BOT
+msg.chat.id,
+`🚀 AZASAVED BOT
 
-📥 Отправь ссылку TikTok
-и бот скачает видео`,
+Отправь ссылку:
+
+• TikTok
+• Instagram
+• YouTube`,
 {
 reply_markup:{
 keyboard:[
@@ -64,8 +56,11 @@ resize_keyboard:true
 
 })
 
-// ===== MESSAGE =====
-bot.on("message", async (msg)=>{
+// =================
+// MESSAGE
+// =================
+
+bot.on("message",async(msg)=>{
 
 const chatId = msg.chat.id
 const text = msg.text
@@ -73,21 +68,13 @@ const text = msg.text
 if(!text) return
 if(text.startsWith("/")) return
 
-// кнопки
-
 if(text === "📥 Скачать видео"){
-bot.sendMessage(chatId,"📥 Отправь ссылку TikTok")
+bot.sendMessage(chatId,"📥 Отправь ссылку")
 return
 }
 
 if(text === "ℹ️ Помощь"){
-bot.sendMessage(chatId,
-`📖 Как пользоваться
-
-1️⃣ Скопируй ссылку TikTok
-2️⃣ Отправь её боту
-3️⃣ Получи видео`
-)
+bot.sendMessage(chatId,"Отправь ссылку TikTok / Instagram / YouTube")
 return
 }
 
@@ -96,47 +83,126 @@ bot.sendMessage(chatId,"https://t.me/AZATECHNOLOGY_FREE")
 return
 }
 
-// антиспам
+// =================
+// LOADING ANIMATION
+// =================
 
-if(antiSpam(msg.from.id)){
-bot.sendMessage(chatId,"⏳ Подождите секунду...")
-return
-}
-
-// проверка ссылки
-
-if(!text.includes("tiktok.com")){
-bot.sendMessage(chatId,"❌ Это не ссылка TikTok")
-return
-}
-
-// ===== GIF ожидания =====
-
-const loadingGif = await bot.sendAnimation(
+const loading = await bot.sendAnimation(
 chatId,
-"https://media.giphy.com/media/3o7TKtnuHOHHUjR38Y/giphy.gif",
-{ caption: "⏳ Подождите секунду..." }
+"https://media.giphy.com/media/y1ZBcOGOOtlpC/giphy.gif",
+{caption:"⏳ Подождите секунду..."}
 )
 
 try{
+
+// =================
+// CACHE
+// =================
+
+if(cache.has(text)){
+
+await bot.deleteMessage(chatId,loading.message_id)
+
+await bot.sendVideo(chatId,cache.get(text))
+
+return
+}
+
+
+// =================
+// TIKTOK
+// =================
+
+if(text.includes("tiktok.com")){
 
 const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(text)}`
 
 const res = await fetch(api)
 const data = await res.json()
 
-// удаляем gif ожидания
-await bot.deleteMessage(chatId,loadingGif.message_id)
+await bot.deleteMessage(chatId,loading.message_id)
 
+// видео
 if(data?.data?.play){
 
+cache.set(text,data.data.play)
+
 await bot.sendVideo(chatId,data.data.play,{
-caption:"⚡ Powered by AZA Technology"
+caption:"🎬 TikTok | AZA Technology"
 })
 
-}else{
+}
 
-bot.sendMessage(chatId,"❌ Не удалось скачать видео")
+// фото slides
+if(data?.data?.images){
+
+for(const img of data.data.images){
+
+await bot.sendPhoto(chatId,img)
+
+}
+
+}
+
+}
+
+
+// =================
+// INSTAGRAM
+// =================
+
+else if(text.includes("instagram.com")){
+
+const api = `https://api.vxtiktok.com/instagram?url=${encodeURIComponent(text)}`
+
+const res = await fetch(api)
+const data = await res.json()
+
+await bot.deleteMessage(chatId,loading.message_id)
+
+if(data?.video){
+
+cache.set(text,data.video)
+
+await bot.sendVideo(chatId,data.video,{
+caption:"📸 Instagram"
+})
+
+}
+
+}
+
+
+// =================
+// YOUTUBE
+// =================
+
+else if(text.includes("youtube.com") || text.includes("youtu.be")){
+
+const api = `https://api.vxtiktok.com/youtube?url=${encodeURIComponent(text)}`
+
+const res = await fetch(api)
+const data = await res.json()
+
+await bot.deleteMessage(chatId,loading.message_id)
+
+if(data?.video){
+
+cache.set(text,data.video)
+
+await bot.sendVideo(chatId,data.video,{
+caption:"🎬 YouTube"
+})
+
+}
+
+}
+
+else{
+
+await bot.deleteMessage(chatId,loading.message_id)
+
+bot.sendMessage(chatId,"❌ Неправильная ссылка")
 
 }
 
@@ -150,6 +216,5 @@ bot.sendMessage(chatId,"❌ Ошибка скачивания")
 
 })
 
-// защита от падений
 process.on("unhandledRejection",console.error)
 process.on("uncaughtException",console.error)
