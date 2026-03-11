@@ -7,11 +7,9 @@ const bot = new TelegramBot(TOKEN,{ polling:true })
 
 console.log("🚀 AZASAVED BOT STARTED")
 
-// кеш видео
 const cache = new Map()
-
-// антиспам
 const cooldown = new Map()
+
 
 // START
 bot.onText(/\/start/, (msg)=>{
@@ -21,15 +19,15 @@ const chatId = msg.chat.id
 bot.sendMessage(chatId,
 `👋 Добро пожаловать в AZASAVED BOT
 
-📥 Скачивай медиа из:
+📥 Скачивай видео из:
 • TikTok
 • Instagram
 
-Отправьте ссылку`,
+Нажмите кнопку ниже`,
 {
 reply_markup:{
 keyboard:[
-["📥 Скачать медиа"],
+["📥 Скачать видео"],
 ["ℹ️ Помощь","📢 Канал"],
 ["👨‍💻 Разработчик"]
 ],
@@ -49,7 +47,7 @@ const text = msg.text
 if(!text || text.startsWith("/")) return
 
 
-// анти спам
+// антиспам
 const now = Date.now()
 const last = cooldown.get(chatId)
 
@@ -61,6 +59,13 @@ return
 cooldown.set(chatId,now)
 
 
+// КНОПКА СКАЧАТЬ
+if(text === "📥 Скачать видео"){
+bot.sendMessage(chatId,"📥 Отправьте ссылку TikTok или Instagram")
+return
+}
+
+
 // помощь
 if(text === "ℹ️ Помощь"){
 bot.sendMessage(chatId,
@@ -68,7 +73,7 @@ bot.sendMessage(chatId,
 
 1️⃣ Скопируйте ссылку
 2️⃣ Отправьте её боту
-3️⃣ Получите медиа`)
+3️⃣ Получите видео`)
 return
 }
 
@@ -90,13 +95,6 @@ return
 }
 
 
-// кнопка скачать
-if(text === "📥 Скачать видео"){
-bot.sendMessage(chatId,"📥 Отправьте ссылку TikTok или Instagram")
-return
-}
-
-
 // если не ссылка
 if(!text.includes("http")) return
 
@@ -104,6 +102,7 @@ if(!text.includes("http")) return
 bot.sendMessage(chatId,"⏳ Получаю видео...")
 
 try{
+
 
 // TIKTOK
 if(text.includes("tiktok.com")){
@@ -136,7 +135,6 @@ inline_keyboard:[
 }
 
 
-
 // INSTAGRAM
 if(text.includes("instagram.com")){
 
@@ -151,8 +149,6 @@ for(const media of data.media){
 
 if(media.type === "video"){
 await bot.sendVideo(chatId,media.url)
-}else{
-await bot.sendPhoto(chatId,media.url)
 }
 
 }
@@ -164,7 +160,6 @@ await bot.sendPhoto(chatId,media.url)
 }catch(err){
 
 console.log(err)
-
 bot.sendMessage(chatId,"❌ Ошибка скачивания")
 
 }
