@@ -3,27 +3,27 @@ import fetch from "node-fetch"
 
 const TOKEN = process.env.TOKEN
 
-const bot = new TelegramBot(TOKEN,{ polling:true })
+const bot = new TelegramBot(TOKEN, { polling: true })
 
-console.log("🚀 AZASAVED BOT STARTED")
-
-const cooldown = new Map()
+console.log("AZASAVED BOT started")
 
 // START
-bot.onText(/\/start/, (msg)=>{
+bot.onText(/\/start/, (msg) => {
 
 const chatId = msg.chat.id
 
 bot.sendMessage(chatId,
 `👋 Добро пожаловать в AZASAVED BOT
 
-📥 Скачивай видео из:
+📥 Скачивай видео и фото из:
 • TikTok
-• Instagram`,
+• Instagram
+
+Нажмите кнопку ниже и отправьте ссылку.`,
 {
 reply_markup:{
 keyboard:[
-["📥 Скачать видео"],
+["📥 Скачать медиа"],
 ["ℹ️ Помощь","📢 Канал"],
 ["👨‍💻 Разработчик"]
 ],
@@ -34,8 +34,8 @@ resize_keyboard:true
 })
 
 
-// MESSAGE
-bot.on("message", async(msg)=>{
+// ВСЕ СООБЩЕНИЯ
+bot.on("message", async (msg) => {
 
 const chatId = msg.chat.id
 const text = msg.text
@@ -43,33 +43,14 @@ const text = msg.text
 if(!text || text.startsWith("/")) return
 
 
-// антиспам
-const now = Date.now()
-const last = cooldown.get(chatId)
-
-if(last && now - last < 3000){
-bot.sendMessage(chatId,"⏳ Подождите пару секунд")
-return
-}
-
-cooldown.set(chatId,now)
-
-
-// кнопка скачать
-if(text === "📥 Скачать видео"){
-bot.sendMessage(chatId,"📥 Отправьте ссылку TikTok или Instagram")
-return
-}
-
-
 // помощь
 if(text === "ℹ️ Помощь"){
 bot.sendMessage(chatId,
-`📖 Как пользоваться
+`📖 Как пользоваться ботом
 
-1️⃣ Скопируйте ссылку
-2️⃣ Отправьте её боту
-3️⃣ Получите видео`)
+1️⃣ Скопируй ссылку из TikTok или Instagram
+2️⃣ Отправь её боту
+3️⃣ Получи медиа за пару секунд`)
 return
 }
 
@@ -77,7 +58,7 @@ return
 // канал
 if(text === "📢 Канал"){
 bot.sendMessage(chatId,
-`📢 Наш канал
+`📢 Подпишитесь на канал
 
 https://t.me/AZATECHNOLOGY_FREE`)
 return
@@ -86,7 +67,15 @@ return
 
 // разработчик
 if(text === "👨‍💻 Разработчик"){
-bot.sendMessage(chatId,"👨‍💻 Создатель: AZA Technology")
+bot.sendMessage(chatId,
+"👨‍💻 Создатель: AZA Technology")
+return
+}
+
+
+// скачать
+if(text === "📥 Скачать медиа"){
+bot.sendMessage(chatId,"📥 Киньте ссылку на видео или фото")
 return
 }
 
@@ -94,95 +83,66 @@ return
 // если не ссылка
 if(!text.includes("http")) return
 
-
-// сообщение загрузки
-const loading = await bot.sendMessage(chatId,"⏳ Получаю видео...")
+bot.sendMessage(chatId,"⏳ Скачиваю...")
 
 try{
 
+// ======================
 // TIKTOK
+// ======================
+
 if(text.includes("tiktok.com")){
 
-const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(text)}`
+const api = `https://www.tikwm.com/api/?url=${text}`
 
 const res = await fetch(api)
 const data = await res.json()
 
-await bot.deleteMessage(chatId,loading.message_id)
-
-if(data.data && data.data.play){
+if(data.data.play){
 await bot.sendVideo(chatId,data.data.play)
-}else{
-bot.sendMessage(chatId,"❌ Не удалось скачать TikTok")
-}
-
+bot.sendMessage(chatId,"⚡ Powered by AZA Technology")
 return
 }
 
+}
 
-// INSTAGRAM API 1
+
+// ======================
+// INSTAGRAM
+// ======================
+
 if(text.includes("instagram.com")){
 
-try{
-
-const api = `https://api.ryzendesu.vip/api/downloader/igdl?url=${encodeURIComponent(text)}`
+const api = `https://api.vxtiktok.com/instagram?url=${text}`
 
 const res = await fetch(api)
 const data = await res.json()
 
-if(data && data.media && data.media.length > 0){
-
-await bot.deleteMessage(chatId,loading.message_id)
+if(data.media && data.media.length > 0){
 
 for(const media of data.media){
 
-if(media.url){
+if(media.type === "video"){
 await bot.sendVideo(chatId,media.url)
-}
-
-}
-
-return
-
-}
-
-}catch(e){}
-
-
-// INSTAGRAM API 2 fallback
-
-const api2 = `https://api.vreden.my.id/api/igdl?url=${encodeURIComponent(text)}`
-
-const res2 = await fetch(api2)
-const data2 = await res2.json()
-
-await bot.deleteMessage(chatId,loading.message_id)
-
-if(data2.result && data2.result.length > 0){
-
-for(const media of data2.result){
-
-if(media.url){
-await bot.sendVideo(chatId,media.url)
-}
-
-}
-
 }else{
-
-bot.sendMessage(chatId,"❌ Не удалось скачать Instagram")
+await bot.sendPhoto(chatId,media.url)
+}
 
 }
 
+bot.sendMessage(chatId,"⚡ Powered by AZA Technology")
 return
 
 }
+
+}
+
+
+bot.sendMessage(chatId,"❌ Не удалось скачать")
 
 }catch(err){
 
 console.log(err)
-
-await bot.deleteMessage(chatId,loading.message_id)
 
 bot.sendMessage(chatId,"❌ Ошибка скачивания")
 
