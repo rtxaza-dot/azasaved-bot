@@ -1,13 +1,13 @@
 import TelegramBot from "node-telegram-bot-api"
-import fetch from "node-fetch"
 
 const TOKEN = process.env.TOKEN
 
-const bot = new TelegramBot(TOKEN,{polling:true})
+const bot = new TelegramBot(TOKEN, { polling: true })
 
 console.log("AZASAVED BOT started")
 
-bot.onText(/\/start/, (msg)=>{
+// START
+bot.onText(/\/start/, (msg) => {
 
 const chatId = msg.chat.id
 
@@ -32,11 +32,18 @@ resize_keyboard:true
 
 })
 
-bot.on("message", async (msg)=>{
+
+// ВСЕ СООБЩЕНИЯ
+bot.on("message", async (msg) => {
 
 const chatId = msg.chat.id
 const text = msg.text
 
+// игнорируем команды
+if(!text || text.startsWith("/")) return
+
+
+// помощь
 if(text === "ℹ️ Помощь"){
 bot.sendMessage(chatId,
 `📖 Как пользоваться ботом
@@ -47,6 +54,8 @@ bot.sendMessage(chatId,
 return
 }
 
+
+// канал
 if(text === "📢 Канал"){
 bot.sendMessage(chatId,
 `📢 Подпишитесь на канал
@@ -55,18 +64,25 @@ https://t.me/AZATECHNOLOGY_FREE`)
 return
 }
 
+
+// разработчик
 if(text === "👨‍💻 Разработчик"){
 bot.sendMessage(chatId,
 "👨‍💻 Создатель: AZA Technology")
 return
 }
 
+
+// скачать
 if(text === "📥 Скачать медиа"){
 bot.sendMessage(chatId,"📥 Киньте ссылку на видео или фото")
 return
 }
 
-if(!text || !text.includes("http")) return
+
+// если это не ссылка
+if(!text.includes("http")) return
+
 
 bot.sendMessage(chatId,"⏳ Скачиваю...")
 
@@ -77,9 +93,11 @@ const api = `https://www.tikwm.com/api/?url=${text}`
 const res = await fetch(api)
 const data = await res.json()
 
+
 if(data.data.play){
 await bot.sendVideo(chatId,data.data.play)
 }
+
 
 if(data.data.images){
 for(const img of data.data.images){
@@ -87,9 +105,12 @@ await bot.sendPhoto(chatId,img)
 }
 }
 
+
 bot.sendMessage(chatId,"⚡ Powered by AZA Technology")
 
 }catch(err){
+
+console.log(err)
 
 bot.sendMessage(chatId,"❌ Не удалось скачать")
 
