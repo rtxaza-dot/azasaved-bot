@@ -1,227 +1,134 @@
 import TelegramBot from "node-telegram-bot-api"
 import fetch from "node-fetch"
-import dotenv from "dotenv"
-import mongoose from "mongoose"
 import express from "express"
+import dotenv from "dotenv"
 
 dotenv.config()
 
 const TOKEN = process.env.TOKEN
-const MONGO_URI = process.env.MONGO_URI
 const PORT = process.env.PORT || 8080
 
-// EXPRESS (для Railway)
+// express сервер (Railway требует порт)
 const app = express()
 
 app.get("/", (req,res)=>{
-res.send("BOT RUNNING 🚀")
+  res.send("AZASAVED BOT RUNNING 🚀")
 })
 
 app.listen(PORT,()=>{
-console.log("Server running on port",PORT)
+  console.log("Server running on port", PORT)
 })
 
-
-// =================
-// MongoDB
-// =================
-
-mongoose.connect(MONGO_URI,{
-useNewUrlParser:true,
-useUnifiedTopology:true
-})
-.then(()=>console.log("MongoDB connected"))
-.catch(err=>console.log("Mongo error:",err))
-
-const User = mongoose.model("User",{
-userId:Number
-})
-
-
-// =================
-// Telegram BOT
-// =================
-
+// telegram bot
 const bot = new TelegramBot(TOKEN,{ polling:true })
 
 console.log("🤖 BOT STARTED")
 
-
-// =================
-// CACHE
-// =================
-
+// кэш чтобы быстрее работало
 const cache = new Map()
 
-function getCache(url){
-return cache.get(url)
-}
-
-function saveCache(url,data){
-
-cache.set(url,{
-data,
-time:Date.now()
-})
-
-}
-
-// очистка старого кэша
-setInterval(()=>{
-
-const now = Date.now()
-
-for(const [key,value] of cache){
-
-if(now - value.time > 1800000){
-cache.delete(key)
-}
-
-}
-
-},600000)
-
-
-// =================
-// ANTISPAM
-// =================
-
+// антиспам
 const cooldown = new Map()
 
 function antiSpam(userId){
+  const now = Date.now()
 
-const now = Date.now()
+  if(cooldown.has(userId)){
+    if(now - cooldown.get(userId) < 2000){
+      return true
+    }
+  }
 
-if(cooldown.has(userId)){
-if(now - cooldown.get(userId) < 2000){
-return true
-}
-}
-
-cooldown.set(userId,now)
-return false
-
+  cooldown.set(userId,now)
+  return false
 }
 
 
-// =================
-// START
-// =================
+// start
+bot.onText(/\/start/, (msg)=>{
 
-bot.onText(/\/start/, async (msg)=>{
+  const chatId = msg.chat.id
 
-const chatId = msg.chat.id
-const userId = msg.from.id
-
-try{
-
-const exist = await User.findOne({userId})
-
-if(!exist){
-await User.create({userId})
-}
-
-}catch(err){
-console.log("DB error:",err)
-}
-
-bot.sendMessage(chatId,
+  bot.sendMessage(
+    chatId,
 `👋 Добро пожаловать в AZASAVED BOT
 
 📥 Отправь ссылку TikTok
-и бот скачает видео без водяного знака ⚡`
-)
+и я скачаю видео без водяного знака ⚡`
+  )
 
 })
 
 
-// =================
-// MESSAGE
-// =================
-
+// обработка сообщений
 bot.on("message", async (msg)=>{
 
-const chatId = msg.chat.id
-const text = msg.text
-const userId = msg.from.id
+  const chatId = msg.chat.id
+  const text = msg.text
+  const userId = msg.from.id
 
-if(!text) return
-if(text.startsWith("/")) return
+  if(!text) return
+  if(text.startsWith("/")) return
 
-if(antiSpam(userId)){
-bot.sendMessage(chatId,"⏳ Подожди немного...")
-return
-}
+  if(antiSpam(userId)){
+    bot.sendMessage(chatId,"⏳ Подожди немного")
+    return
+  }
 
-const loading = await bot.sendMessage(chatId,"⚡ Загружаю...")
+  if(!text.includes("tiktok.com")){
+    bot.sendMessage(chatId,"❌ Это не ссылка TikTok")
+    return
+  }
 
-try{
+  const loading = await bot.sendMessage(chatId,"⚡ Загружаю...")
 
-// CACHE
-const cached = getCache(text)
+  try{
 
-if(cached){
+    // проверка кэша
+    if(cache.has(text)){
 
-await bot.deleteMessage(chatId,loading.message_id)
+      const video = cache.get(text)
 
-await bot.sendVideo(chatId,cached.data,{
-caption:"⚡ Быстро из кэша"
-})
+      await bot.deleteMessage(chatId,loading.message_id)
 
-return
-}
+      await bot.sendVideo(chatId,video,{
+        caption:"⚡ Быстро из кэша"
+      })
 
+      return
+    }
 
-// TIKTOK
+    const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(text)}`
 
-if(text.includes("tiktok.com")){
+    const res = await fetch(api)
+    const data = await res.json()
 
-const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(text)}`
+    await bot.deleteMessage(chatId,loading.message_id)
 
-const res = await fetch(api)
-const data = await res.json()
+    if(data?.data?.play){
 
-await bot.deleteMessage(chatId,loading.message_id)
+      cache.set(text,data.data.play)
 
-if(data?.data?.play){
+      await bot.sendVideo(chatId,data.data.play,{
+        caption:"⚡ Powered by AZA Technology"
+      })
 
-saveCache(text,data.data.play)
+    }else{
 
-await bot.sendVideo(chatId,data.data.play,{
-caption:"🎬 TikTok | Powered by AZA Technology"
-})
+      bot.sendMessage(chatId,"❌ Не удалось скачать видео")
 
-}else{
+    }
 
-bot.sendMessage(chatId,"❌ Не удалось скачать видео")
+  }catch(err){
 
-}
+    console.log(err)
+    bot.sendMessage(chatId,"❌ Ошибка скачивания")
 
-}else{
-
-bot.sendMessage(chatId,"❌ Это не ссылка TikTok")
-
-}
-
-}catch(err){
-
-console.log(err)
-
-bot.sendMessage(chatId,"❌ Ошибка скачивания")
-
-}
+  }
 
 })
 
 
-// =================
-// НЕ ПАДАТЬ
-// =================
-
-process.on("unhandledRejection",(err)=>{
-console.log("UNHANDLED:",err)
-})
-
-process.on("uncaughtException",(err)=>{
-console.log("EXCEPTION:",err)
-})
+// защита от падения
+process.on("unhandledRejection",console.error)
+process.on("uncaughtException",console.error)
