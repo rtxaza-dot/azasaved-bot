@@ -59,15 +59,9 @@ cooldown.set(chatId,now)
 
 // кнопка скачать
 if(text === "📥 Скачать видео"){
-
 bot.sendMessage(chatId,
 "📥 Скиньте ссылку TikTok или Instagram",
-{
-reply_markup:{
-force_reply:true
-}
-})
-
+{ reply_markup:{ force_reply:true }})
 return
 }
 
@@ -105,23 +99,18 @@ return
 if(!text.includes("http")) return
 
 
-// сообщение загрузки
 const loading = await bot.sendMessage(chatId,"⏳ Получаю видео.")
 
-
-// анимация
 setTimeout(()=>bot.editMessageText("⏳ Получаю видео..",{chat_id:chatId,message_id:loading.message_id}),500)
 setTimeout(()=>bot.editMessageText("⏳ Получаю видео...",{chat_id:chatId,message_id:loading.message_id}),1000)
 
 
 try{
 
-
 // TIKTOK
 if(text.includes("tiktok.com")){
 
 const api = `https://www.tikwm.com/api/?url=${text}`
-
 const res = await fetch(api)
 const data = await res.json()
 
@@ -149,19 +138,46 @@ inline_keyboard:[
 }
 
 
-// INSTAGRAM
+// INSTAGRAM (API 1)
 if(text.includes("instagram.com")){
 
-const api = `https://api.ryzendesu.vip/api/downloader/igdl?url=${text}`
+try{
 
+const api = `https://api.ryzendesu.vip/api/downloader/igdl?url=${text}`
 const res = await fetch(api)
 const data = await res.json()
 
-await bot.deleteMessage(chatId,loading.message_id)
-
 if(data.media){
 
+await bot.deleteMessage(chatId,loading.message_id)
+
 for(const media of data.media){
+
+if(media.type === "video"){
+await bot.sendVideo(chatId,media.url)
+}
+
+}
+
+return
+
+}
+
+}catch{}
+
+
+// INSTAGRAM (API 2 fallback)
+
+const api2 = `https://api.vreden.my.id/api/igdl?url=${text}`
+
+const res2 = await fetch(api2)
+const data2 = await res2.json()
+
+await bot.deleteMessage(chatId,loading.message_id)
+
+if(data2.result){
+
+for(const media of data2.result){
 
 if(media.type === "video"){
 await bot.sendVideo(chatId,media.url)
