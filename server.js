@@ -91,7 +91,7 @@ return
 
 
 // кнопка скачать
-if(text === "📥 Скачать медиа"){
+if(text === "📥 Скачать видео"){
 bot.sendMessage(chatId,"📥 Отправьте ссылку TikTok или Instagram")
 return
 }
@@ -101,7 +101,7 @@ return
 if(!text.includes("http")) return
 
 
-bot.sendMessage(chatId,"⏳ Получаю медиа...")
+bot.sendMessage(chatId,"⏳ Получаю видео...")
 
 try{
 
@@ -136,20 +136,25 @@ inline_keyboard:[
 }
 
 
+
 // INSTAGRAM
 if(text.includes("instagram.com")){
 
-const api = `https://api.vreden.my.id/api/igdl?url=${text}`
+const api = `https://api.ryzendesu.vip/api/downloader/igdl?url=${text}`
 
 const res = await fetch(api)
 const data = await res.json()
 
-for(const media of data.result){
+if(data.media){
+
+for(const media of data.media){
 
 if(media.type === "video"){
 await bot.sendVideo(chatId,media.url)
 }else{
 await bot.sendPhoto(chatId,media.url)
+}
+
 }
 
 }
