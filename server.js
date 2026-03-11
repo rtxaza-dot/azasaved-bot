@@ -7,9 +7,7 @@ const bot = new TelegramBot(TOKEN,{ polling:true })
 
 console.log("🚀 AZASAVED BOT STARTED")
 
-const cache = new Map()
 const cooldown = new Map()
-
 
 // START
 bot.onText(/\/start/, (msg)=>{
@@ -59,7 +57,7 @@ cooldown.set(chatId,now)
 
 // кнопка скачать
 if(text === "📥 Скачать видео"){
-bot.sendMessage(chatId,"📥 Скиньте ссылку TikTok или Instagram")
+bot.sendMessage(chatId,"📥 Отправьте ссылку TikTok или Instagram")
 return
 }
 
@@ -97,51 +95,94 @@ return
 if(!text.includes("http")) return
 
 
+// сообщение загрузки
 const loading = await bot.sendMessage(chatId,"⏳ Получаю видео...")
 
 try{
 
-
 // TIKTOK
 if(text.includes("tiktok.com")){
 
-const api = `https://www.tikwm.com/api/?url=${text}`
+const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(text)}`
 
 const res = await fetch(api)
 const data = await res.json()
 
 await bot.deleteMessage(chatId,loading.message_id)
 
+if(data.data && data.data.play){
 await bot.sendVideo(chatId,data.data.play)
+}else{
+bot.sendMessage(chatId,"❌ Не удалось скачать TikTok")
+}
 
+return
 }
 
 
-// INSTAGRAM
+// INSTAGRAM API 1
 if(text.includes("instagram.com")){
 
-const api = `https://api.vreden.my.id/api/igdl?url=${text}`
+try{
+
+const api = `https://api.ryzendesu.vip/api/downloader/igdl?url=${encodeURIComponent(text)}`
 
 const res = await fetch(api)
 const data = await res.json()
 
+if(data && data.media && data.media.length > 0){
+
 await bot.deleteMessage(chatId,loading.message_id)
 
-if(data.result){
+for(const media of data.media){
 
-for(const media of data.result){
-
+if(media.url){
 await bot.sendVideo(chatId,media.url)
-
 }
 
 }
+
+return
+
+}
+
+}catch(e){}
+
+
+// INSTAGRAM API 2 fallback
+
+const api2 = `https://api.vreden.my.id/api/igdl?url=${encodeURIComponent(text)}`
+
+const res2 = await fetch(api2)
+const data2 = await res2.json()
+
+await bot.deleteMessage(chatId,loading.message_id)
+
+if(data2.result && data2.result.length > 0){
+
+for(const media of data2.result){
+
+if(media.url){
+await bot.sendVideo(chatId,media.url)
+}
+
+}
+
+}else{
+
+bot.sendMessage(chatId,"❌ Не удалось скачать Instagram")
+
+}
+
+return
 
 }
 
 }catch(err){
 
 console.log(err)
+
+await bot.deleteMessage(chatId,loading.message_id)
 
 bot.sendMessage(chatId,"❌ Ошибка скачивания")
 
