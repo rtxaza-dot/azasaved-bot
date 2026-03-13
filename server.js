@@ -18,10 +18,23 @@ app.listen(PORT, () => console.log("Server running on port", PORT))
 const bot = new TelegramBot(TOKEN, { polling: true })
 console.log("BOT STARTED")
 
-// DATABASE (Сбросится при перезагрузке)
+// DATABASE
 const users = new Map()
 const referrals = new Map()
 const cache = new Map()
+
+// --- НОВАЯ ФУНКЦИЯ ОБНОВЛЕНИЯ ОПИСАНИЯ ---
+async function updateBotDescription() {
+    try {
+        const count = users.size;
+        // Устанавливает текст под названием бота
+        await bot.setMyDescription({
+            description: `${count} пользователей используют этот бот 🚀`
+        });
+    } catch (err) {
+        console.error("Ошибка обновления описания:", err.message);
+    }
+}
 
 // QUEUE SYSTEM
 const queue = []
@@ -37,7 +50,6 @@ async function processQueue() {
     working = false
 }
 
-// ФУНКЦИЯ КРАСИВЫХ ЧИСЕЛ (1.2M, 100K)
 function formatCount(num) {
     if (!num) return "0"
     if (num >= 1000000) return (num / 1000000).toFixed(1) + "M"
@@ -45,7 +57,6 @@ function formatCount(num) {
     return num.toString()
 }
 
-// CACHE
 function setCache(key, value) {
     cache.set(key, { value, expire: Date.now() + 1000 * 60 * 60 })
 }
@@ -57,11 +68,16 @@ function getCache(key) {
     return data.value
 }
 
-// DOWNLOAD COUNT
 function addDownload(userId, username) {
+    const isNewUser = !users.has(userId);
     const u = users.get(userId) || { username: username || "unknown", downloads: 0 }
     u.downloads++
     users.set(userId, u)
+    
+    // Если пользователь новый — обновляем описание в профиле
+    if (isNewUser) {
+        updateBotDescription();
+    }
 }
 
 // HANDLERS
@@ -74,6 +90,15 @@ bot.onText(/\/start (.+)/, (msg, match) => {
 })
 
 bot.onText(/\/start$/, (msg) => {
+    const userId = msg.from.id;
+    const username = msg.from.username || msg.from.first_name;
+    
+    // Регистрируем пользователя при старте, если его нет
+    if (!users.has(userId)) {
+        users.set(userId, { username: username, downloads: 0 });
+        updateBotDescription(); // Обновляем "3 пользователя..." в профиле
+    }
+
     const name = msg.from.first_name || "друг"
     bot.sendMessage(msg.chat.id, 
         `🚀 Добро пожаловать, ${name}\n\n🔥 Я создал этого бота для скачивания TikTok в Ultra HD качестве.\n\nПросто отправь мне ссылку!`,
@@ -142,7 +167,6 @@ bot.on("message", async (msg) => {
                 const likes = formatCount(data.data.digg_count)
                 const captionText = `🎬 TikTok HD | AZA Technology\n\n👁 ${views} | ❤️ ${likes}`
 
-                // Сначала ПРОВЕРКА НА КАРУСЕЛЬ ФОТО
                 if (data.data.images && data.data.images.length > 0) {
                     const images = data.data.images
                     for (let i = 0; i < images.length; i += 10) {
@@ -156,7 +180,6 @@ bot.on("message", async (msg) => {
                     }
                     addDownload(userId, username)
                 } 
-                // ЕСЛИ НЕ ФОТО, ТО ВИДЕО
                 else if (data.data.play) {
                     const videoUrl = data.data.hdplay || data.data.play
                     setCache(link, videoUrl)
