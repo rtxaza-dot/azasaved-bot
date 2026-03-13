@@ -12,13 +12,13 @@ const BOT_USERNAME = "AZASAVED_bot"
 // EXPRESS
 const app = express()
 app.get("/", (req, res) => res.send("AZASAVED BOT RUNNING 🚀"))
-app.listen(PORT, () => console.log("Server running on port", PORT))
+app.listen(PORT, () => console.log("Server running", PORT))
 
 // TELEGRAM
 const bot = new TelegramBot(TOKEN, { polling: true })
 console.log("BOT STARTED")
 
-// DATABASE (Данные сбросятся при перезагрузке сервера!)
+// DATABASE
 const users = new Map()
 const referrals = new Map()
 const cache = new Map()
@@ -37,7 +37,7 @@ async function processQueue() {
     working = false
 }
 
-// CACHE LOGIC
+// CACHE
 function setCache(key, value) {
     cache.set(key, { value, expire: Date.now() + 1000 * 60 * 60 })
 }
@@ -51,25 +51,24 @@ function getCache(key) {
 
 // DOWNLOAD COUNT
 function addDownload(userId, username) {
-    const userData = users.get(userId) || { username: username || "unknown", downloads: 0 }
-    userData.downloads++
-    users.set(userId, userData)
+    const u = users.get(userId) || { username: username || "unknown", downloads: 0 }
+    u.downloads++
+    users.set(userId, u)
 }
 
 // HANDLERS
 bot.onText(/\/start (.+)/, (msg, match) => {
-    const refId = parseInt(match[1])
+    const refId = match[1]
     const userId = msg.from.id
-    if (refId && refId !== userId) {
-        const currentRefs = referrals.get(refId) || 0
-        referrals.set(refId, currentRefs + 1)
+    if (refId && refId != userId) {
+        referrals.set(refId, (referrals.get(refId) || 0) + 1)
     }
 })
 
 bot.onText(/\/start$/, (msg) => {
     const name = msg.from.first_name || "друг"
     bot.sendMessage(msg.chat.id, 
-        `🚀 Добро пожаловать, ${name}\n\n🔥 Скачивай TikTok в HD качестве\n\nПросто отправь ссылку`,
+        `🚀 Добро пожаловать, ${name}\n\n🔥 Скачивай TikTok в HD без водяного знака\n\nПросто отправь ссылку`,
         {
             reply_markup: {
                 keyboard: [
@@ -90,8 +89,8 @@ bot.on("message", async (msg) => {
 
     if (!text || text.startsWith("/")) return
 
-    // Кнопки меню
-    if (text === "📥 Скачать видео") return bot.sendMessage(chatId, "Отправь ссылку на TikTok")
+    // Кнопки
+    if (text === "📥 Скачать видео") return bot.sendMessage(chatId, "Отправь ссылку TikTok")
     if (text === "📢 Канал") return bot.sendMessage(chatId, "https://t.me/AZATECHNOLOGY_FREE")
     if (text === "👥 Пригласить друзей") {
         const link = `https://t.me/${BOT_USERNAME}?start=${userId}`
@@ -100,28 +99,28 @@ bot.on("message", async (msg) => {
     if (text === "📊 Статистика") {
         let total = 0
         users.forEach(u => total += u.downloads)
-        return bot.sendMessage(chatId, `📊 Статистика\n\n👤 Юзеров: ${users.size}\n📥 Скачиваний: ${total}`)
+        return bot.sendMessage(chatId, `📊 Статистика\n\n👤 Пользователей: ${users.size}\n📥 Скачиваний: ${total}`)
     }
     if (text === "🏆 Топ скачивателей") {
-        const top = Array.from(users.values()).sort((a, b) => b.downloads - a.downloads).slice(0, 10)
+        const top = [...users.values()].sort((a, b) => b.downloads - a.downloads).slice(0, 10)
         let msgTop = "🏆 ТОП СКАЧИВАТЕЛЕЙ\n\n"
         top.forEach((u, i) => msgTop += `${i + 1}️⃣ @${u.username} — ${u.downloads} видео\n`)
-        return bot.sendMessage(chatId, top.length > 0 ? msgTop : "Список пуст")
+        return bot.sendMessage(chatId, top.length > 0 ? msgTop : "Топ пока пуст")
     }
 
-    // Поиск ссылок
     const links = text.match(/https?:\/\/(?:vm\.|www\.|vt\.)?tiktok\.com\/[^\s]+/g)
     if (!links) return
 
     for (const link of links) {
         queue.push(async () => {
-            const progress = await bot.sendMessage(chatId, "⏳ Обработка видео в HD...")
+            const progress = await bot.sendMessage(chatId, "⏳ Обработка в Ultra HD...")
             try {
                 const cached = getCache(link)
                 if (cached) {
                     await bot.deleteMessage(chatId, progress.message_id).catch(()=>{})
                     await bot.sendVideo(chatId, cached, { caption: "🎬 TikTok HD | AZA Technology" })
-                    return addDownload(userId, username)
+                    addDownload(userId, username)
+                    return
                 }
 
                 const res = await fetch(`https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`)
@@ -129,32 +128,31 @@ bot.on("message", async (msg) => {
                 await bot.deleteMessage(chatId, progress.message_id).catch(()=>{})
 
                 if (data?.data?.play) {
-                    // ПРИОРИТЕТ HD: Берем hdplay, если его нет — обычный play
                     const videoUrl = data.data.hdplay || data.data.play
                     setCache(link, videoUrl)
-
-                    const info = `🎬 *TikTok HD*\n\n👁 ${data.data.play_count} | ❤️ ${data.data.digg_count}\n👤 ${data.data.author.unique_id}`
-                    
                     await bot.sendVideo(chatId, videoUrl, {
-                        caption: info,
-                        parse_mode: "Markdown"
+                        caption: `🎬 TikTok HD | AZA Technology\n\n👁 ${data.data.play_count} | ❤️ ${data.data.digg_count}`
                     })
                     addDownload(userId, username)
                 } else if (data?.data?.images) {
-                    // Фото-слайды (ограничение до 10 штук для Telegram)
-                    const media = data.data.images.slice(0, 10).map((img, i) => ({
-                        type: "photo",
-                        media: img,
-                        caption: i === 0 ? "🎬 TikTok Photo | AZA Technology" : ""
-                    }))
-                    await bot.sendMediaGroup(chatId, media)
+                    const images = data.data.images
+                    // Отправляем ВСЕ фото пачками по 10 штук
+                    for (let i = 0; i < images.length; i += 10) {
+                        const chunk = images.slice(i, i + 10)
+                        const media = chunk.map((img, idx) => ({
+                            type: "photo",
+                            media: img,
+                            caption: (i === 0 && idx === 0) ? "🎬 TikTok Photo | AZA Technology" : ""
+                        }))
+                        await bot.sendMediaGroup(chatId, media).catch(console.error)
+                    }
                     addDownload(userId, username)
                 } else {
-                    bot.sendMessage(chatId, "❌ Не удалось найти видео по ссылке.")
+                    bot.sendMessage(chatId, "❌ Ошибка: Видео не найдено")
                 }
             } catch (err) {
                 console.error(err)
-                bot.sendMessage(chatId, "❌ Ошибка сервера.")
+                bot.sendMessage(chatId, "❌ Ошибка при скачивании")
             }
         })
     }
