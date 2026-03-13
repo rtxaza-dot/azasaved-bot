@@ -1,27 +1,40 @@
 import TelegramBot from "node-telegram-bot-api"
 import fetch from "node-fetch"
 import express from "express"
+import fs from "fs"
 import dotenv from "dotenv"
 
 dotenv.config()
 
 const TOKEN = process.env.TOKEN
-const PORT = process.env.PORT || 8080
+const PORT = process.env.PORT || 3000
 const BOT_USERNAME = "AZASAVED_bot"
-const ADMIN_ID = 5331869155 // Твой ID установлен ✅
+const ADMIN_ID = 5331869155
 
-// EXPRESS
+// EXPRESS (нужно для Railway)
 const app = express()
-app.get("/", (req, res) => res.send("AZASAVED BOT RUNNING 🚀"))
-app.listen(PORT, () => console.log("Server running", PORT))
+app.get("/", (req, res) => res.send("AZA TikTok Bot running 🚀"))
+app.listen(PORT, () => console.log("Server started", PORT))
 
 // TELEGRAM
 const bot = new TelegramBot(TOKEN, { polling: true })
-console.log("BOT STARTED")
+console.log("Bot started")
 
-// DATABASE
-const users = new Map()
-const referrals = new Map()
+// FILE DATABASE
+const DB_FILE = "./users.json"
+
+let users = {}
+
+if (fs.existsSync(DB_FILE)) {
+    users = JSON.parse(fs.readFileSync(DB_FILE))
+}
+
+function saveUsers() {
+    fs.writeFileSync(DB_FILE, JSON.stringify(users, null, 2))
+}
+
+// CACHE
+const cache = new Map()
 
 // FORMAT NUMBERS
 function formatCount(num) {
@@ -31,115 +44,212 @@ function formatCount(num) {
     return num.toString()
 }
 
-// SAVE USER
-function addDownload(userId, username, firstName) {
-    const name = username ? `@${username}` : firstName || "Unknown"
-    if (!users.has(userId)) {
-        users.set(userId, { name, downloads: 1 })
+// SAVE DOWNLOAD
+function addDownload(user) {
+
+    const id = user.id
+    const name = user.username ? `@${user.username}` : user.first_name
+
+    if (!users[id]) {
+        users[id] = {
+            name,
+            downloads: 1
+        }
     } else {
-        const u = users.get(userId)
-        u.downloads++
-        u.name = name
-        users.set(userId, u)
+        users[id].downloads++
+        users[id].name = name
     }
+
+    saveUsers()
 }
 
 // START
-bot.onText(/\/start$/, (msg) => {
-    const buttons = [
-        ["📥 Скачать видео"],
-        ["🏆 Топ скачивателей", "📊 Статистика"],
-        ["👥 Пригласить друзей", "📢 Канал"]
-    ]
-    if (msg.from.id === ADMIN_ID) buttons.push(["⚙️ Админ Панель"])
+bot.onText(/\/start/, (msg) => {
 
-    bot.sendMessage(msg.chat.id, `🚀 Привет, ${msg.from.first_name}!\nОтправь ссылку TikTok для скачивания.`, {
-        reply_markup: { keyboard: buttons, resize_keyboard: true }
-    })
+    const keyboard = [
+        ["🏆 Топ скачивателей", "📊 Статистика"],
+        ["👥 Пригласить друзей"]
+    ]
+
+    if (msg.from.id === ADMIN_ID) {
+        keyboard.push(["⚙️ Админ панель"])
+    }
+
+    bot.sendMessage(
+        msg.chat.id,
+        `🚀 Привет, ${msg.from.first_name}!
+
+Отправьте ссылку TikTok и бот скачает видео в HD без водяного знака.`,
+        {
+            reply_markup: {
+                keyboard,
+                resize_keyboard: true
+            }
+        }
+    )
+
 })
 
-// MESSAGE HANDLER
+// MESSAGE
 bot.on("message", async (msg) => {
+
     const chatId = msg.chat.id
     const text = msg.text
     const userId = msg.from.id
 
     if (!text || text.startsWith("/")) return
 
-    // АДМИН ПАНЕЛЬ
-    if (text === "⚙️ Админ Панель" && userId === ADMIN_ID) {
-        let userList = "📋 *СПИСОК ПОЛЬЗОВАТЕЛЕЙ:*\n\n"
-        users.forEach((data, id) => {
-            userList += `• \`${id}\` | ${data.name} | 📥: ${data.downloads}\n`
+    // СТАТИСТИКА
+    if (text === "📊 Статистика") {
+
+        let total = 0
+
+        Object.values(users).forEach(u => {
+            total += u.downloads
         })
-        const finalMsg = users.size > 0 ? userList : "Пользователей пока нет."
-        bot.sendMessage(chatId, finalMsg.slice(0, 4000) + "\n\n📢 *Для рассылки напишите:* \n`рассылка: текст сообщения`", { parse_mode: "Markdown" })
+
+        bot.sendMessage(
+            chatId,
+            `📊 Статистика
+
+👤 Пользователей: ${Object.keys(users).length}
+📥 Всего скачано видео: ${total}`
+        )
+
         return
     }
 
-    // ЛОГИКА РАССЫЛКИ
-    if (text.startsWith("рассылка:") && userId === ADMIN_ID) {
-        const broadcastMsg = text.replace("рассылка:", "").trim()
-        let count = 0
-        users.forEach((data, id) => {
-            bot.sendMessage(id, broadcastMsg).catch(() => {})
-            count++
-        })
-        return bot.sendMessage(chatId, `✅ Рассылка завершена! Отправлено ${count} пользователям.`)
-    }
-
-    // КНОПКИ МЕНЮ
-    if (text === "📊 Статистика") {
-        let total = 0
-        users.forEach(u => total += u.downloads)
-        return bot.sendMessage(chatId, `📊 *Статистика*\n\n👤 Юзеров: ${users.size}\n📥 Всего скачиваний: ${total}`, { parse_mode: "Markdown" })
-    }
-
+    // ТОП
     if (text === "🏆 Топ скачивателей") {
-        const top = [...users.values()].sort((a, b) => b.downloads - a.downloads).slice(0, 10)
-        let msgTop = "🏆 *ТОП ЮЗЕРОВ*\n\n"
-        top.forEach((u, i) => msgTop += `${i + 1}️⃣ ${u.name} — ${u.downloads} видео\n`)
-        return bot.sendMessage(chatId, msgTop, { parse_mode: "Markdown" })
+
+        const top = Object.values(users)
+            .sort((a, b) => b.downloads - a.downloads)
+            .slice(0, 10)
+
+        let message = "🏆 Топ скачивателей\n\n"
+
+        top.forEach((u, i) => {
+            message += `${i + 1}️⃣ ${u.name} — ${u.downloads} видео\n`
+        })
+
+        bot.sendMessage(chatId, message)
+
+        return
     }
 
+    // ПРИГЛАСИТЬ
     if (text === "👥 Пригласить друзей") {
-        return bot.sendMessage(chatId, `👥 Ссылка:\nhttps://t.me/${BOT_USERNAME}?start=${userId}`)
+
+        bot.sendMessage(
+            chatId,
+            `👥 Ваша ссылка приглашения:
+
+https://t.me/${BOT_USERNAME}?start=${userId}`
+        )
+
+        return
     }
 
-    if (text === "📥 Скачать видео") return bot.sendMessage(chatId, "Жду ссылку TikTok...")
+    // АДМИН
+    if (text === "⚙️ Админ панель" && userId === ADMIN_ID) {
 
-    // СКАНЕР TIKTOK
-    const links = text.match(/https?:\/\/(?:vm\.|www\.|vt\.)?tiktok\.com\/[^\s]+/g)
+        bot.sendMessage(
+            chatId,
+            `⚙️ Админ панель
+
+Для рассылки используйте:
+
+рассылка: текст`
+        )
+
+        return
+    }
+
+    // РАССЫЛКА
+    if (text.startsWith("рассылка:") && userId === ADMIN_ID) {
+
+        const message = text.replace("рассылка:", "").trim()
+
+        let sent = 0
+
+        for (const id of Object.keys(users)) {
+
+            try {
+                await bot.sendMessage(id, message)
+                sent++
+            } catch {}
+
+        }
+
+        bot.sendMessage(chatId, `✅ Отправлено ${sent} пользователям`)
+
+        return
+    }
+
+    // TIKTOK LINK
+    const links = text.match(/https?:\/\/(vm\.|vt\.|www\.)?tiktok\.com\/[^\s]+/g)
+
     if (!links) return
 
+    if (links.length > 5) {
+        bot.sendMessage(chatId, "❌ Максимум 5 ссылок за раз.")
+        return
+    }
+
     for (const link of links) {
-        const progress = await bot.sendMessage(chatId, "⏳ Обработка...")
+
+        const loading = await bot.sendMessage(chatId, "⏳ Загружаю TikTok...")
+
         try {
+
+            if (cache.has(link)) {
+
+                await bot.deleteMessage(chatId, loading.message_id)
+
+                bot.sendVideo(chatId, cache.get(link), {
+                    caption: "🎬 Видео из TikTok\n\n⬇️ Скачано через @" + BOT_USERNAME
+                })
+
+                addDownload(msg.from)
+
+                continue
+            }
+
             const res = await fetch(`https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`)
             const data = await res.json()
-            await bot.deleteMessage(chatId, progress.message_id).catch(() => {})
 
-            if (data?.data) {
-                const stats = `👁 ${formatCount(data.data.play_count)} | ❤️ ${formatCount(data.data.digg_count)}`
-                const caption = `🎬 TikTok HD | AZA Technology\n\n${stats}`
+            await bot.deleteMessage(chatId, loading.message_id)
 
-                if (data.data.images) {
-                    for (let i = 0; i < data.data.images.length; i += 10) {
-                        const chunk = data.data.images.slice(i, i + 10)
-                        const media = chunk.map((img, idx) => ({
-                            type: "photo", media: img, caption: (i === 0 && idx === 0) ? caption : ""
-                        }))
-                        await bot.sendMediaGroup(chatId, media)
-                    }
-                } else {
-                    await bot.sendVideo(chatId, data.data.hdplay || data.data.play, { caption })
-                }
-                addDownload(userId, msg.from.username, msg.from.first_name)
+            if (!data?.data) {
+
+                bot.sendMessage(chatId, "❌ Не удалось скачать видео.")
+                continue
             }
+
+            const video = data.data.hdplay || data.data.play
+
+            const caption =
+`🎬 Видео из TikTok
+
+👁 ${formatCount(data.data.play_count)}
+❤️ ${formatCount(data.data.digg_count)}
+
+⬇️ Скачано через @${BOT_USERNAME}`
+
+            await bot.sendVideo(chatId, video, { caption })
+
+            cache.set(link, video)
+
+            addDownload(msg.from)
+
         } catch (e) {
+
             bot.sendMessage(chatId, "❌ Ошибка загрузки.")
+
         }
+
     }
+
 })
 
 process.on("unhandledRejection", console.error)
