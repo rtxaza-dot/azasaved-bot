@@ -1,202 +1,145 @@
-import TelegramBot from "node-telegram-bot-api"
-import fetch from "node-fetch"
-import express from "express"
-import dotenv from "dotenv"
+import TelegramBot from "node-telegram-bot-api";
+import fetch from "node-fetch";
+import express from "express";
+import dotenv from "dotenv";
+import Datastore from "nedb";
 
-dotenv.config()
+dotenv.config();
 
-const TOKEN = process.env.TOKEN
-const PORT = process.env.PORT || 8080
-const BOT_USERNAME = "AZASAVED_bot"
+// --- КОНФИГУРАЦИЯ ---
+const TOKEN = process.env.TOKEN;
+const RAPIDAPI_KEY = "66d468edb1mshb464cad2161835cp1d5727jsn06c2068b6ed3";
+const ADMIN_ID = 5331869155;
+const BOT_USERNAME = "AZASAVED_bot";
 
-// EXPRESS
-const app = express()
-app.get("/", (req, res) => res.send("AZASAVED BOT RUNNING 🚀"))
-app.listen(PORT, () => console.log("Server running on port", PORT))
+// База данных (Railway Volume: /app/database)
+const db = new Datastore({ filename: './database/users.db', autoload: true });
+db.persistence.setAutocompactionInterval(60000);
 
-// TELEGRAM
-const bot = new TelegramBot(TOKEN, { polling: true })
-console.log("BOT STARTED")
+// Защита от спама (храним время последнего запроса юзера)
+const floodControl = new Map();
 
-// DATABASE
-const users = new Map()
-const referrals = new Map()
-const cache = new Map()
+const app = express();
+app.get("/", (req, res) => res.send("System: Online 🛡️"));
+app.listen(process.env.PORT || 8080);
 
-// --- НОВАЯ ФУНКЦИЯ ОБНОВЛЕНИЯ ОПИСАНИЯ ---
-async function updateBotDescription() {
+const bot = new TelegramBot(TOKEN, { polling: true });
+
+// --- СЕРВИСНЫЕ ФУНКЦИИ ---
+
+async function syncDescription() {
+    db.count({}, async (err, count) => {
+        if (!err) {
+            try {
+                await bot.setMyDescription({ 
+                    description: `${count.toLocaleString()} пользователей используют этот бот 🚀` 
+                });
+            } catch (e) {}
+        }
+    });
+}
+
+const getKeyboard = () => ({
+    reply_markup: {
+        inline_keyboard: [
+            [{ text: "💾 Сохранить", callback_data: "save" }, { text: "🎵 Скачать песню", callback_data: "audio" }],
+            [{ text: "Добавить в группу ⤴️", url: `https://t.me/${BOT_USERNAME}?startgroup=true` }]
+        ]
+    }
+});
+
+// --- ОСНОВНОЙ ДВИЖОК ЗАГРУЗКИ (3 в 1) ---
+
+async function masterDownloader(chatId, url) {
+    // Проверка на флуд (защита)
+    const now = Date.now();
+    if (floodControl.has(chatId) && (now - floodControl.get(chatId) < 3000)) {
+        return bot.sendMessage(chatId, "⚠️ **Защита:** Не спамь! Подожди 3 секунды.");
+    }
+    floodControl.set(chatId, now);
+
+    const status = await bot.sendMessage(chatId, "⚡ **Обработка ссылки...**", { parse_mode: "Markdown" });
+    
+    let apiUrl = "", host = "";
+    
+    // Детектор платформы
+    if (url.includes("tiktok.com")) {
+        apiUrl = `https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`;
+    } else if (url.includes("instagram.com")) {
+        apiUrl = `https://instagram-reels-downloader-api.p.rapidapi.com/downloadReel?url=${encodeURIComponent(url)}`;
+        host = "instagram-reels-downloader-api.p.rapidapi.com";
+    } else if (url.includes("youtube.com") || url.includes("youtu.be")) {
+        apiUrl = `https://youtube-v31.p.rapidapi.com/download?url=${encodeURIComponent(url)}`;
+        host = "youtube-v31.p.rapidapi.com";
+    }
+
     try {
-        const count = users.size;
-        // Устанавливает текст под названием бота
-        await bot.setMyDescription({
-            description: `${count} пользователей используют этот бот 🚀`
+        const res = await fetch(apiUrl, { 
+            headers: host ? { 'X-RapidAPI-Key': RAPIDAPI_KEY, 'X-RapidAPI-Host': host } : {},
+            timeout: 15000 
         });
-    } catch (err) {
-        console.error("Ошибка обновления описания:", err.message);
+        const data = await res.json();
+        
+        let videoLink = "";
+        if (url.includes("tiktok")) videoLink = data.data?.hdplay || data.data?.play;
+        else if (url.includes("instagram")) videoLink = data.download_url || (data.links && data.links[0].link);
+        else videoLink = data.link;
+
+        await bot.deleteMessage(chatId, status.message_id).catch(() => {});
+
+        if (videoLink) {
+            await bot.sendVideo(chatId, videoLink, {
+                caption: `📥 Скачано через @${BOT_USERNAME}`,
+                ...getKeyboard()
+            });
+        } else {
+            bot.sendMessage(chatId, "❌ Ошибка: Не удалось получить прямое видео. Возможно, профиль закрыт.");
+        }
+    } catch (e) {
+        bot.sendMessage(chatId, "❌ Сервер загрузки временно недоступен.");
     }
 }
 
-// QUEUE SYSTEM
-const queue = []
-let working = false
-
-async function processQueue() {
-    if (working || queue.length === 0) return
-    working = true
-    while (queue.length > 0) {
-        const job = queue.shift()
-        try { await job() } catch (err) { console.error("Queue Job Error:", err) }
-    }
-    working = false
-}
-
-function formatCount(num) {
-    if (!num) return "0"
-    if (num >= 1000000) return (num / 1000000).toFixed(1) + "M"
-    if (num >= 1000) return (num / 1000).toFixed(1) + "K"
-    return num.toString()
-}
-
-function setCache(key, value) {
-    cache.set(key, { value, expire: Date.now() + 1000 * 60 * 60 })
-}
-
-function getCache(key) {
-    const data = cache.get(key)
-    if (!data) return null
-    if (Date.now() > data.expire) { cache.delete(key); return null }
-    return data.value
-}
-
-function addDownload(userId, username) {
-    const isNewUser = !users.has(userId);
-    const u = users.get(userId) || { username: username || "unknown", downloads: 0 }
-    u.downloads++
-    users.set(userId, u)
-    
-    // Если пользователь новый — обновляем описание в профиле
-    if (isNewUser) {
-        updateBotDescription();
-    }
-}
-
-// HANDLERS
-bot.onText(/\/start (.+)/, (msg, match) => {
-    const refId = match[1]
-    const userId = msg.from.id
-    if (refId && refId != userId) {
-        referrals.set(refId, (referrals.get(refId) || 0) + 1)
-    }
-})
-
-bot.onText(/\/start$/, (msg) => {
-    const userId = msg.from.id;
-    const username = msg.from.username || msg.from.first_name;
-    
-    // Регистрируем пользователя при старте, если его нет
-    if (!users.has(userId)) {
-        users.set(userId, { username: username, downloads: 0 });
-        updateBotDescription(); // Обновляем "3 пользователя..." в профиле
-    }
-
-    const name = msg.from.first_name || "друг"
-    bot.sendMessage(msg.chat.id, 
-        `🚀 Добро пожаловать, ${name}\n\n🔥 Я создал этого бота для скачивания TikTok в Ultra HD качестве.\n\nПросто отправь мне ссылку!`,
-        {
-            reply_markup: {
-                keyboard: [
-                    ["📥 Скачать видео"],
-                    ["🏆 Топ скачивателей", "📊 Статистика"],
-                    ["👥 Пригласить друзей", "📢 Канал"]
-                ],
-                resize_keyboard: true
-            }
-        })
-})
+// --- ОБРАБОТЧИК СООБЩЕНИЙ ---
 
 bot.on("message", async (msg) => {
-    const chatId = msg.chat.id
-    const text = msg.text
-    const userId = msg.from.id
-    const username = msg.from.username || msg.from.first_name
+    const chatId = msg.chat.id;
+    const text = msg.text;
+    if (!text) return;
 
-    if (!text || text.startsWith("/")) return
+    // Регистрация в БД
+    db.update({ _id: chatId.toString() }, { $set: { user: msg.from.username, last: new Date() } }, { upsert: true }, () => syncDescription());
 
-    if (text === "📥 Скачать видео") return bot.sendMessage(chatId, "Отправь ссылку на TikTok")
-    if (text === "📢 Канал") return bot.sendMessage(chatId, "https://t.me/AZATECHNOLOGY_FREE")
-    if (text === "👥 Пригласить друзей") {
-        const link = `https://t.me/${BOT_USERNAME}?start=${userId}`
-        return bot.sendMessage(chatId, `👥 Твоя ссылка:\n${link}\n\nПриглашено: ${referrals.get(userId) || 0}`)
+    // АДМИНКА
+    if (text.startsWith("/send") && chatId === ADMIN_ID) {
+        const broadcast = text.replace("/send ", "");
+        db.find({}, (err, users) => {
+            bot.sendMessage(ADMIN_ID, `📢 Рассылка на ${users.length} чел. запущена...`);
+            users.forEach((u, i) => {
+                setTimeout(() => bot.sendMessage(u._id, broadcast).catch(() => {}), i * 40);
+            });
+        });
+        return;
     }
+
+    if (text === "/start") {
+        return bot.sendMessage(chatId, `🚀 **AZASAVED ULTRA**\n\nПришли ссылку из TikTok, Instagram или YouTube Shorts.\n\nБот абсолютно бесплатен!`, {
+            reply_markup: { keyboard: [["📊 Статистика"]], resize_keyboard: true }
+        });
+    }
+
     if (text === "📊 Статистика") {
-        let total = 0
-        users.forEach(u => total += u.downloads)
-        return bot.sendMessage(chatId, `📊 Статистика\n\n👤 Пользователей: ${users.size}\n📥 Скачиваний: ${total}`)
-    }
-    if (text === "🏆 Топ скачивателей") {
-        const top = [...users.values()].sort((a, b) => b.downloads - a.downloads).slice(0, 10)
-        let msgTop = "🏆 ТОП СКАЧИВАТЕЛЕЙ\n\n"
-        top.forEach((u, i) => msgTop += `${i + 1}️⃣ @${u.username} — ${u.downloads} видео\n`)
-        return bot.sendMessage(chatId, top.length > 0 ? msgTop : "Топ пока пуст")
+        db.count({}, (err, count) => {
+            bot.sendMessage(chatId, `📈 **ДАННЫЕ БОТА**\n\n👤 Всего юзеров: ${count.toLocaleString()}\n🛡 Защита: Активна\n⚡ Скорость: Максимальная`, { parse_mode: "Markdown" });
+        });
+        return;
     }
 
-    const links = text.match(/https?:\/\/(?:vm\.|www\.|vt\.)?tiktok\.com\/[^\s]+/g)
-    if (!links) return
-
-    for (const link of links) {
-        queue.push(async () => {
-            const progress = await bot.sendMessage(chatId, "⏳ Обработка в Ultra HD...")
-            try {
-                const cached = getCache(link)
-                if (cached) {
-                    await bot.deleteMessage(chatId, progress.message_id).catch(()=>{})
-                    await bot.sendVideo(chatId, cached, { caption: "🎬 TikTok HD | AZA Technology" })
-                    addDownload(userId, username)
-                    return
-                }
-
-                const res = await fetch(`https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`)
-                const data = await res.json()
-                await bot.deleteMessage(chatId, progress.message_id).catch(()=>{})
-
-                if (!data || !data.data) {
-                    return bot.sendMessage(chatId, "❌ Ошибка: Не удалось получить данные.")
-                }
-
-                const views = formatCount(data.data.play_count)
-                const likes = formatCount(data.data.digg_count)
-                const captionText = `🎬 TikTok HD | AZA Technology\n\n👁 ${views} | ❤️ ${likes}`
-
-                if (data.data.images && data.data.images.length > 0) {
-                    const images = data.data.images
-                    for (let i = 0; i < images.length; i += 10) {
-                        const chunk = images.slice(i, i + 10)
-                        const media = chunk.map((img, idx) => ({
-                            type: "photo",
-                            media: img,
-                            caption: (i === 0 && idx === 0) ? captionText : ""
-                        }))
-                        await bot.sendMediaGroup(chatId, media).catch(console.error)
-                    }
-                    addDownload(userId, username)
-                } 
-                else if (data.data.play) {
-                    const videoUrl = data.data.hdplay || data.data.play
-                    setCache(link, videoUrl)
-                    await bot.sendVideo(chatId, videoUrl, { caption: captionText })
-                    addDownload(userId, username)
-                } else {
-                    bot.sendMessage(chatId, "❌ Ошибка: Медиа файл не найден.")
-                }
-
-            } catch (err) {
-                console.error(err)
-                bot.sendMessage(chatId, "❌ Ошибка при скачивании.")
-            }
-        })
+    // Обработка ссылок
+    if (text.includes("http")) {
+        await masterDownloader(chatId, text);
     }
-    processQueue()
-})
+});
 
-process.on("unhandledRejection", console.error)
-process.on("uncaughtException", console.error)
+bot.on('callback_query', (q) => bot.answerCallbackQuery(q.id));
+console.log("🛡️ Бронированный бот запущен...");
