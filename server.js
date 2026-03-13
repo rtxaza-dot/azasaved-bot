@@ -12,13 +12,13 @@ const BOT_USERNAME = "AZASAVED_bot"
 // EXPRESS
 const app = express()
 app.get("/", (req, res) => res.send("AZASAVED BOT RUNNING 🚀"))
-app.listen(PORT, () => console.log("Server running", PORT))
+app.listen(PORT, () => console.log("Server running on port", PORT))
 
 // TELEGRAM
 const bot = new TelegramBot(TOKEN, { polling: true })
 console.log("BOT STARTED")
 
-// DATABASE
+// DATABASE (Сбросится при перезагрузке)
 const users = new Map()
 const referrals = new Map()
 const cache = new Map()
@@ -35,6 +35,14 @@ async function processQueue() {
         try { await job() } catch (err) { console.error("Queue Job Error:", err) }
     }
     working = false
+}
+
+// ФУНКЦИЯ КРАСИВЫХ ЧИСЕЛ (1.2M, 100K)
+function formatCount(num) {
+    if (!num) return "0"
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + "M"
+    if (num >= 1000) return (num / 1000).toFixed(1) + "K"
+    return num.toString()
 }
 
 // CACHE
@@ -68,7 +76,7 @@ bot.onText(/\/start (.+)/, (msg, match) => {
 bot.onText(/\/start$/, (msg) => {
     const name = msg.from.first_name || "друг"
     bot.sendMessage(msg.chat.id, 
-        `🚀 Добро пожаловать, ${name}\n\n🔥 Скачивай TikTok в HD без водяного знака\n\nПросто отправь ссылку`,
+        `🚀 Добро пожаловать, ${name}\n\n🔥 Я создал этого бота для скачивания TikTok в Ultra HD качестве.\n\nПросто отправь мне ссылку!`,
         {
             reply_markup: {
                 keyboard: [
@@ -89,8 +97,7 @@ bot.on("message", async (msg) => {
 
     if (!text || text.startsWith("/")) return
 
-    // Кнопки
-    if (text === "📥 Скачать видео") return bot.sendMessage(chatId, "Отправь ссылку TikTok")
+    if (text === "📥 Скачать видео") return bot.sendMessage(chatId, "Отправь ссылку на TikTok")
     if (text === "📢 Канал") return bot.sendMessage(chatId, "https://t.me/AZATECHNOLOGY_FREE")
     if (text === "👥 Пригласить друзей") {
         const link = `https://t.me/${BOT_USERNAME}?start=${userId}`
@@ -127,32 +134,41 @@ bot.on("message", async (msg) => {
                 const data = await res.json()
                 await bot.deleteMessage(chatId, progress.message_id).catch(()=>{})
 
-                if (data?.data?.play) {
-                    const videoUrl = data.data.hdplay || data.data.play
-                    setCache(link, videoUrl)
-                    await bot.sendVideo(chatId, videoUrl, {
-                        caption: `🎬 TikTok HD | AZA Technology\n\n👁 ${data.data.play_count} | ❤️ ${data.data.digg_count}`
-                    })
-                    addDownload(userId, username)
-                } else if (data?.data?.images) {
+                if (!data || !data.data) {
+                    return bot.sendMessage(chatId, "❌ Ошибка: Не удалось получить данные.")
+                }
+
+                const views = formatCount(data.data.play_count)
+                const likes = formatCount(data.data.digg_count)
+                const captionText = `🎬 TikTok HD | AZA Technology\n\n👁 ${views} | ❤️ ${likes}`
+
+                // Сначала ПРОВЕРКА НА КАРУСЕЛЬ ФОТО
+                if (data.data.images && data.data.images.length > 0) {
                     const images = data.data.images
-                    // Отправляем ВСЕ фото пачками по 10 штук
                     for (let i = 0; i < images.length; i += 10) {
                         const chunk = images.slice(i, i + 10)
                         const media = chunk.map((img, idx) => ({
                             type: "photo",
                             media: img,
-                            caption: (i === 0 && idx === 0) ? "🎬 TikTok Photo | AZA Technology" : ""
+                            caption: (i === 0 && idx === 0) ? captionText : ""
                         }))
                         await bot.sendMediaGroup(chatId, media).catch(console.error)
                     }
                     addDownload(userId, username)
+                } 
+                // ЕСЛИ НЕ ФОТО, ТО ВИДЕО
+                else if (data.data.play) {
+                    const videoUrl = data.data.hdplay || data.data.play
+                    setCache(link, videoUrl)
+                    await bot.sendVideo(chatId, videoUrl, { caption: captionText })
+                    addDownload(userId, username)
                 } else {
-                    bot.sendMessage(chatId, "❌ Ошибка: Видео не найдено")
+                    bot.sendMessage(chatId, "❌ Ошибка: Медиа файл не найден.")
                 }
+
             } catch (err) {
                 console.error(err)
-                bot.sendMessage(chatId, "❌ Ошибка при скачивании")
+                bot.sendMessage(chatId, "❌ Ошибка при скачивании.")
             }
         })
     }
