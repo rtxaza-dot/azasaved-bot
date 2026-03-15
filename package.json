@@ -1,7 +1,7 @@
 {
   "name": "azasaved-tiktok-bot",
   "version": "3.0.0",
-  "description": "TikTok downloader Telegram bot",
+  "description": "TikTok downloader bot",
   "main": "server.js",
   "type": "module",
   "scripts": {
