@@ -15,23 +15,23 @@ console.log("TOKEN missing")
 process.exit(1)
 }
 
-// express
+// express (Railway keep alive)
 const app = express()
 app.get("/", (req,res)=>res.send("Bot running"))
 app.listen(PORT)
 
-// bot
+// telegram
 const bot = new TelegramBot(TOKEN,{ polling:true })
 
 console.log("Bot started")
 
-// database
+// база
 const users = {}
 
 // cache
 const cache = new Map()
 
-// queue
+// очередь
 const queue = []
 let working = false
 
@@ -43,7 +43,6 @@ runQueue()
 async function runQueue(){
 
 if(working) return
-
 working = true
 
 while(queue.length){
@@ -59,10 +58,9 @@ console.log(e)
 }
 
 working = false
-
 }
 
-// format numbers
+// формат чисел
 function format(n){
 
 if(!n) return "0"
@@ -71,10 +69,9 @@ if(n>=1000000) return (n/1000000).toFixed(1)+"M"
 if(n>=1000) return (n/1000).toFixed(1)+"K"
 
 return n
-
 }
 
-// anti spam
+// антиспам
 const cooldown = new Map()
 
 function antiSpam(id){
@@ -90,22 +87,13 @@ if(diff < 2000) return true
 }
 
 cooldown.set(id,now)
-
 return false
-
 }
 
-// menu
-function menu(chatId){
+// меню
+function menu(chatId,userId){
 
-bot.sendMessage(
-chatId,
-`🎬 TikTok HD Downloader
-
-Нажмите кнопку и отправьте ссылку`,
-{
-reply_markup:{
-inline_keyboard:[
+const buttons = [
 [{text:"📥 Скачать TikTok",callback_data:"download"}],
 [
 {text:"📊 Статистика",callback_data:"stats"},
@@ -113,16 +101,31 @@ inline_keyboard:[
 ],
 [{text:"👥 Пригласить друзей",callback_data:"invite"}]
 ]
+
+if(userId === ADMIN_ID){
+buttons.push([{text:"⚙️ Админ панель",callback_data:"admin"}])
 }
+
+bot.sendMessage(
+chatId,
+`🎬 TikTok HD Downloader
+
+Нажмите кнопку и отправьте ссылку TikTok`,
+{
+reply_markup:{inline_keyboard:buttons}
 }
 )
 
 }
 
 // start
-bot.onText(/\/start/, msg => menu(msg.chat.id))
+bot.onText(/\/start/, msg => {
 
-// buttons
+menu(msg.chat.id,msg.from.id)
+
+})
+
+// кнопки
 bot.on("callback_query", async q => {
 
 const chatId = q.message.chat.id
@@ -130,15 +133,12 @@ const data = q.data
 const userId = q.from.id
 
 if(data==="download"){
-
 bot.sendMessage(chatId,"📥 Отправьте ссылку TikTok")
-
 }
 
 if(data==="stats"){
 
 let total=0
-
 Object.values(users).forEach(v=> total+=v)
 
 bot.sendMessage(chatId,
@@ -174,9 +174,46 @@ https://t.me/${BOT_USERNAME}?start=${userId}`)
 
 }
 
+// админ панель
+if(data==="admin" && userId===ADMIN_ID){
+
+bot.sendMessage(chatId,
+`⚙️ Админ панель`,
+{
+reply_markup:{
+inline_keyboard:[
+[{text:"📊 Статистика бота",callback_data:"admin_stats"}],
+[{text:"👥 Пользователи",callback_data:"admin_users"}],
+[{text:"📢 Рассылка",callback_data:"admin_broadcast"}]
+]
+}
 })
 
-// message
+}
+
+if(data==="admin_stats" && userId===ADMIN_ID){
+
+let total=0
+Object.values(users).forEach(v=> total+=v)
+
+bot.sendMessage(chatId,
+`📊 Статистика бота
+
+👤 Пользователи: ${Object.keys(users).length}
+📥 Скачано видео: ${total}`)
+
+}
+
+if(data==="admin_users" && userId===ADMIN_ID){
+
+bot.sendMessage(chatId,
+`👥 Пользователей: ${Object.keys(users).length}`)
+
+}
+
+})
+
+// сообщения
 bot.on("message", async msg => {
 
 const chatId = msg.chat.id
@@ -190,6 +227,27 @@ bot.sendMessage(chatId,"⏳ Подождите пару секунд")
 return
 }
 
+// рассылка
+if(text.startsWith("рассылка:") && userId===ADMIN_ID){
+
+const message = text.replace("рассылка:","").trim()
+
+let sent = 0
+
+for(const id of Object.keys(users)){
+
+try{
+await bot.sendMessage(id,message)
+sent++
+}catch{}
+
+}
+
+bot.sendMessage(chatId,`✅ Отправлено ${sent}`)
+return
+}
+
+// поиск ссылки
 const links = text.match(/https?:\/\/[^\s]*tiktok\.com\/[^\s]+/g)
 
 if(!links) return
@@ -220,7 +278,6 @@ message_id:loading.message_id
 })
 
 const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
-
 const {data} = await axios.get(api)
 
 await bot.editMessageText("✅ Отправляю...",{
@@ -228,6 +285,7 @@ chat_id:chatId,
 message_id:loading.message_id
 })
 
+// фото
 if(data.data.images){
 
 const media = data.data.images.map(i=>({
@@ -267,7 +325,7 @@ cache.set(link,sent.video.file_id)
 
 users[userId]=(users[userId]||0)+1
 
-}catch(e){
+}catch{
 
 bot.sendMessage(chatId,"❌ Ошибка загрузки")
 
@@ -279,7 +337,7 @@ bot.sendMessage(chatId,"❌ Ошибка загрузки")
 
 })
 
-// music
+// музыка
 bot.on("callback_query", async q => {
 
 const data = q.data
