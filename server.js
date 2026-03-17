@@ -15,7 +15,7 @@ if(!TOKEN){
   process.exit(1)
 }
 
-// express
+// express (для Railway)
 const app = express()
 app.get("/", (req,res)=>res.send("Bot running"))
 app.listen(PORT)
@@ -60,7 +60,7 @@ const cooldown = new Map()
 function antiSpam(id){
   const now = Date.now()
   if(cooldown.has(id)){
-    if(now - cooldown.get(id) < 2000) return true
+    if(now - cooldown.get(id) < 1500) return true
   }
   cooldown.set(id,now)
   return false
@@ -69,8 +69,7 @@ function antiSpam(id){
 // меню
 function menu(chatId,userId){
   const buttons = [
-    [{text:"📥 Скачать TikTok",callback_data:"download"}],
-    [{text:"💖 Поддержать создателя",callback_data:"donate"}],
+    [{text:"💖 Поддержать",callback_data:"donate"}],
     [{text:"👥 Пригласить",callback_data:"invite"}]
   ]
 
@@ -78,12 +77,9 @@ function menu(chatId,userId){
     buttons.push([{text:"⚙️ Админ панель",callback_data:"admin"}])
   }
 
-  bot.sendMessage(chatId,
-`🎬 TikTok HD Downloader
-
-Отправь ссылку TikTok`,
-  { reply_markup:{inline_keyboard:buttons} }
-  )
+  bot.sendMessage(chatId,"🎬 TikTok Downloader",{
+    reply_markup:{inline_keyboard:buttons}
+  })
 }
 
 // start
@@ -97,30 +93,23 @@ bot.on("callback_query", async q=>{
   const userId = q.from.id
   const data = q.data
 
-  if(data==="download"){
-    bot.sendMessage(chatId,"📥 Отправь ссылку TikTok")
-  }
-
   if(data==="invite"){
     bot.sendMessage(chatId,
-`👥 Приглашай друзей:
+`👥 Приглашай:
 https://t.me/${BOT_USERNAME}?start=${userId}`)
   }
 
-  // 💖 донат
   if(data==="donate"){
     bot.sendMessage(chatId,
 `💖 Поддержать создателя
 
-Если тебе нравится бот — можешь поддержать 🙌
+🎁 Отправь подарок:
+👉 @AZAkzn1
 
-💳 Click / Payme / карта:
-XXXX XXXX XXXX XXXX
-
-ИЛИ напиши мне в ЛС 👉 @your_username`)
+Спасибо ❤️`)
   }
 
-  // админ
+  // админка
   if(data==="admin" && userId===ADMIN_ID){
     bot.sendMessage(chatId,"⚙️ Админ панель",{
       reply_markup:{
@@ -135,12 +124,26 @@ XXXX XXXX XXXX XXXX
     adminState[userId] = "broadcast"
     bot.sendMessage(chatId,"📢 Отправь сообщение / фото / видео")
   }
+
+  // музыка
+  if(data.startsWith("music_")){
+    const link = decodeURIComponent(data.replace("music_",""))
+
+    const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
+    const {data:res} = await axios.get(api)
+
+    await bot.sendAudio(chatId,res.data.music,{title:"TikTok Sound"})
+  }
 })
 
 // сообщения
 bot.on("message", async msg=>{
   const chatId = msg.chat.id
   const userId = msg.from.id
+
+  // игнор не текста (важно для гифтов)
+  if(!msg.text) return
+
   const text = msg.text
 
   // регистрация
@@ -166,7 +169,6 @@ bot.on("message", async msg=>{
         else if(msg.video){
           await bot.sendVideo(id,msg.video.file_id,{caption:msg.caption||""})
         }
-
         sent++
       }catch{}
     }
@@ -175,64 +177,69 @@ bot.on("message", async msg=>{
     return
   }
 
-  if(!text || text.startsWith("/")) return
-
-  if(antiSpam(userId)){
-    bot.sendMessage(chatId,"⏳ Подожди пару секунд")
-    return
-  }
-
+  // ищем tiktok ссылки
   const links = text.match(/https?:\/\/[^\s]*tiktok\.com\/[^\s]+/g)
   if(!links) return
 
+  // антиспам только тут
+  if(antiSpam(userId)) return
+
   for(const link of links){
     addQueue(async ()=>{
-      const loading = await bot.sendMessage(chatId,"⏳ Загружаю...")
+      const userMessageId = msg.message_id
+
+      // 🎬 GIF загрузка
+      const loading = await bot.sendAnimation(
+        chatId,
+        "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif"
+      )
 
       try{
+        // cache
         if(cache.has(link)){
           await bot.deleteMessage(chatId,loading.message_id)
-          await bot.sendVideo(chatId,cache.get(link))
+          await bot.deleteMessage(chatId,userMessageId)
+
+          await bot.sendVideo(chatId,cache.get(link),{
+            caption:`📥 Скачано через @${BOT_USERNAME}`,
+            reply_markup:{
+              inline_keyboard:[
+                [{text:"💾 Сохранить", url: cache.get(link)}],
+                [{text:"🎵 Скачать музыку", callback_data:`music_${encodeURIComponent(link)}`}],
+                [{text:"➕ Добавить в группу", url:`https://t.me/${BOT_USERNAME}?startgroup=true`}]
+              ]
+            }
+          })
           return
         }
 
         const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
         const {data} = await axios.get(api)
 
-        if(data.data.images){
-          const media = data.data.images.map(i=>({type:"photo",media:i}))
-          await bot.sendMediaGroup(chatId,media)
-          return
-        }
-
         const video = data.data.hdplay || data.data.play
-        const author = data.data.author?.unique_id || "unknown"
 
-        const sent = await bot.sendVideo(chatId,video,{
-          caption:`🎬 TikTok\n👤 @${author}`
+        // удаляем гифку и сообщение
+        await bot.deleteMessage(chatId,loading.message_id)
+        await bot.deleteMessage(chatId,userMessageId)
+
+        const sent = await bot.sendVideo(chatId, video,{
+          caption:`📥 Скачано через @${BOT_USERNAME}`,
+          reply_markup:{
+            inline_keyboard:[
+              [{text:"💾 Сохранить", url: video}],
+              [{text:"🎵 Скачать музыку", callback_data:`music_${encodeURIComponent(link)}`}],
+              [{text:"➕ Добавить в группу", url:`https://t.me/${BOT_USERNAME}?startgroup=true`}]
+            ]
+          }
         })
 
-        cache.set(link,sent.video.file_id)
+        cache.set(link, sent.video.file_id)
 
       }catch{
-        bot.sendMessage(chatId,"❌ Ошибка загрузки")
+        bot.sendMessage(chatId,"❌ Ошибка")
       }
     })
   }
-})
-
-// музыка
-bot.on("callback_query", async q=>{
-  const data = q.data
-  if(!data.startsWith("music_")) return
-
-  const chatId = q.message.chat.id
-  const link = decodeURIComponent(data.replace("music_",""))
-
-  const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
-  const {data:res} = await axios.get(api)
-
-  await bot.sendAudio(chatId,res.data.music,{title:"TikTok Sound"})
 })
 
 process.on("unhandledRejection",console.error)
