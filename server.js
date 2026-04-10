@@ -33,7 +33,7 @@ const adminState = {}
 let totalDownloads = 0
 let totalRequests = 0
 
-// очистка
+// очистка сообщений
 const lastMessages = new Map()
 
 function clearChat(chatId) {
@@ -58,7 +58,7 @@ function isSpam(id) {
   return false
 }
 
-// кружок
+// 🎬 кружок
 async function toCircle(videoUrl, output) {
   const input = `input_${Date.now()}.mp4`
 
@@ -81,7 +81,7 @@ async function toCircle(videoUrl, output) {
   })
 }
 
-// главное меню (кнопки снизу)
+// меню снизу
 function mainMenu(chatId, userId) {
   return bot.sendMessage(chatId, "📌 Главное меню", {
     reply_markup: {
@@ -113,7 +113,7 @@ bot.onText(/\/start/, (msg) => {
   mainMenu(chatId, userId)
 })
 
-// INLINE (только админ + кружок)
+// CALLBACK
 bot.on("callback_query", async (q) => {
   const chatId = q.message.chat.id
   const userId = q.from.id
@@ -160,8 +160,9 @@ bot.on("callback_query", async (q) => {
       await bot.sendVideoNote(chatId, output)
       fs.unlinkSync(output)
 
-    } catch {
-      bot.sendMessage(chatId, "❌ Ошибка")
+    } catch (e) {
+      console.log(e)
+      bot.sendMessage(chatId, "❌ Ошибка кружка")
     }
   }
 })
@@ -180,7 +181,7 @@ bot.on("message", async (msg) => {
 
   users.add(userId)
 
-  // кнопки снизу
+  // кнопки
   if (text === "📥 Скачать видео") {
     return bot.sendMessage(chatId, "📎 Отправь ссылку TikTok")
   }
@@ -194,7 +195,7 @@ bot.on("message", async (msg) => {
     return bot.sendMessage(chatId, "💖 Спасибо ❤️")
   }
 
-  // админка (inline)
+  // админка
   if (text === "⚙️ Админ панель" && userId === ADMIN_ID) {
     return bot.sendMessage(chatId, "⚙️ Админ панель", {
       reply_markup: {
@@ -243,8 +244,8 @@ bot.on("message", async (msg) => {
     }
   }
 
-  // tiktok
-  const links = text.match(/https?:\/\/[^\s]*tiktok\.com\/[^\s]+/g)
+  // 🔥 ЛОВИМ ВСЕ ССЫЛКИ
+  const links = text.match(/https?:\/\/[^\s]+/g)
   if (!links) return
 
   if (isSpam(userId)) return
@@ -257,10 +258,23 @@ bot.on("message", async (msg) => {
     track(chatId, loading)
 
     try {
-      const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
-      const { data } = await axios.get(api)
+      let video = null
 
-      const video = data.data.hdplay || data.data.play
+      // основной API
+      try {
+        const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
+        const { data } = await axios.get(api)
+
+        console.log(data)
+
+        video = data?.data?.hdplay || data?.data?.play
+      } catch (e) {
+        console.log("API error", e.message)
+      }
+
+      if (!video) {
+        return bot.sendMessage(chatId, "❌ Не удалось скачать видео")
+      }
 
       const sent = await bot.sendVideo(chatId, video, {
         caption: "📥 Готово",
@@ -275,8 +289,9 @@ bot.on("message", async (msg) => {
       track(chatId, sent)
       totalDownloads++
 
-    } catch {
-      bot.sendMessage(chatId, "❌ Ошибка")
+    } catch (err) {
+      console.log(err)
+      bot.sendMessage(chatId, "❌ Ошибка при скачивании")
     }
   }
 })
