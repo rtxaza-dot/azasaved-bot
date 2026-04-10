@@ -12,23 +12,20 @@ const PORT = process.env.PORT || 3000
 const BOT_USERNAME = "AZASAVED_bot"
 const ADMIN_ID = 5331869155
 
-const START_IMAGE = "https://t3.ftcdn.net/jpg/19/69/79/14/360_F_1969791443_yb6AQYxFAvvlB78Q3Lqv6JVbtjuC9ZAT.jpg"
-
 if (!TOKEN) {
-  console.log("❌ TOKEN missing")
+  console.log("TOKEN missing")
   process.exit(1)
 }
 
-// 🌐 Express (для хостинга)
+// server
 const app = express()
 app.get("/", (req, res) => res.send("Bot running"))
-app.listen(PORT, () => console.log("🌐 Server started"))
+app.listen(PORT)
 
-// 🤖 Bot
+// bot
 const bot = new TelegramBot(TOKEN, { polling: true })
-console.log("🤖 Bot started")
 
-// 🧠 Хранилище
+// storage
 const users = new Set()
 const bannedUsers = new Set()
 const adminState = {}
@@ -36,7 +33,23 @@ const adminState = {}
 let totalDownloads = 0
 let totalRequests = 0
 
-// ⚡ Антиспам
+// очистка сообщений
+const lastMessages = new Map()
+
+function clearChat(chatId) {
+  if (!lastMessages.has(chatId)) return
+  for (const id of lastMessages.get(chatId)) {
+    bot.deleteMessage(chatId, id).catch(() => {})
+  }
+  lastMessages.set(chatId, [])
+}
+
+function track(chatId, msg) {
+  if (!lastMessages.has(chatId)) lastMessages.set(chatId, [])
+  lastMessages.get(chatId).push(msg.message_id)
+}
+
+// антиспам
 const cooldown = new Map()
 function isSpam(id) {
   const now = Date.now()
@@ -45,20 +58,15 @@ function isSpam(id) {
   return false
 }
 
-// 🎬 Конвертация в кружок
+// кружок
 async function toCircle(videoUrl, output) {
   const input = `input_${Date.now()}.mp4`
 
-  const response = await axios({
-    url: videoUrl,
-    method: "GET",
-    responseType: "stream"
-  })
-
+  const res = await axios({ url: videoUrl, responseType: "stream" })
   const writer = fs.createWriteStream(input)
-  response.data.pipe(writer)
+  res.data.pipe(writer)
 
-  await new Promise(res => writer.on("finish", res))
+  await new Promise(r => writer.on("finish", r))
 
   return new Promise((resolve, reject) => {
     ffmpeg(input)
@@ -73,105 +81,42 @@ async function toCircle(videoUrl, output) {
   })
 }
 
-// 🚀 START
-bot.onText(/\/start/, msg => {
+// START
+bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id
   const userId = msg.from.id
 
   users.add(userId)
 
-  const buttons = [
-    [
-      { text: "📥 Скачать", callback_data: "help" },
-      { text: "👥 Пригласить", callback_data: "invite" }
-    ],
-    [
-      { text: "💖 Поддержать", callback_data: "donate" }
-    ]
-  ]
-
-  if (userId === ADMIN_ID) {
-    buttons.push([{ text: "⚙️ Админ панель", callback_data: "admin" }])
-  }
-
-  bot.sendPhoto(chatId, START_IMAGE, {
-    caption: `👋 Привет!
+  bot.sendMessage(chatId,
+`👋 Привет!
 
 🎬 Я скачиваю видео из TikTok без водяного знака
 
-📎 Просто отправь ссылку — и я сразу скачаю 🚀`,
+📎 Отправь ссылку — и я скачаю 🚀`,
+  {
     reply_markup: {
-      inline_keyboard: buttons
+      keyboard: [
+        ["📥 Скачать видео"],
+        ["👥 Пригласить", "💖 Поддержать"],
+        ...(userId === ADMIN_ID ? [["⚙️ Админ панель"]] : [])
+      ],
+      resize_keyboard: true
     }
   })
 })
 
-// 🎛 КНОПКИ
-bot.on("callback_query", async q => {
+// CALLBACK (inline)
+bot.on("callback_query", async (q) => {
   const chatId = q.message.chat.id
   const userId = q.from.id
   const data = q.data
 
-  if (data === "help") {
-    return bot.sendMessage(chatId,
-`📥 Как скачать видео:
-
-1. Скопируй ссылку TikTok
-2. Отправь сюда
-
-🚀 Я скачаю без водяного знака`)
-  }
-
-  if (data === "invite") {
-    return bot.sendMessage(chatId,
-`👥 https://t.me/${BOT_USERNAME}?start=${userId}`)
-  }
-
-  if (data === "donate") {
-    return bot.sendMessage(chatId, "💖 Спасибо за поддержку ❤️")
-  }
-
-  // 🔘 кружок
-  if (data.startsWith("circle_")) {
-    const video = data.replace("circle_", "")
-
-    const loading = await bot.sendMessage(chatId, "⏳ Делаю кружок...")
-
-    try {
-      const output = `circle_${Date.now()}.mp4`
-
-      await toCircle(video, output)
-      await bot.sendVideoNote(chatId, output)
-
-      fs.unlinkSync(output)
-      bot.deleteMessage(chatId, loading.message_id)
-
-    } catch {
-      bot.sendMessage(chatId, "❌ Ошибка при создании кружка")
-    }
-  }
-
-  // ⚙️ Админка
-  if (data === "admin" && userId === ADMIN_ID) {
-    return bot.sendMessage(chatId, "⚙️ Админ панель", {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "📊 Статистика", callback_data: "admin_stats" }],
-          [{ text: "📢 Рассылка", callback_data: "admin_broadcast" }],
-          [{ text: "🚫 Бан", callback_data: "admin_ban" }],
-          [{ text: "✅ Разбан", callback_data: "admin_unban" }]
-        ]
-      }
-    })
-  }
-
   if (data === "admin_stats") {
     return bot.sendMessage(chatId,
-`📊 Статистика:
-
-👥 Пользователей: ${users.size}
-📥 Скачиваний: ${totalDownloads}
-⚡ Запросов: ${totalRequests}`)
+`👥 ${users.size}
+📥 ${totalDownloads}
+⚡ ${totalRequests}`)
   }
 
   if (data === "admin_broadcast") {
@@ -179,19 +124,43 @@ bot.on("callback_query", async q => {
     return bot.sendMessage(chatId, "📢 Отправь сообщение")
   }
 
+  if (data === "admin_ads") {
+    adminState[userId] = "ads"
+    return bot.sendMessage(chatId, "📣 Отправь рекламу")
+  }
+
   if (data === "admin_ban") {
     adminState[userId] = "ban"
-    return bot.sendMessage(chatId, "Введи ID:")
+    return bot.sendMessage(chatId, "ID:")
   }
 
   if (data === "admin_unban") {
     adminState[userId] = "unban"
-    return bot.sendMessage(chatId, "Введи ID:")
+    return bot.sendMessage(chatId, "ID:")
+  }
+
+  // кружок
+  if (data.startsWith("circle_")) {
+    const video = data.replace("circle_", "")
+
+    const loading = await bot.sendMessage(chatId, "⏳ Делаю кружок...")
+    track(chatId, loading)
+
+    try {
+      const output = `circle_${Date.now()}.mp4`
+      await toCircle(video, output)
+
+      await bot.sendVideoNote(chatId, output)
+      fs.unlinkSync(output)
+
+    } catch {
+      bot.sendMessage(chatId, "❌ Ошибка")
+    }
   }
 })
 
-// 📩 СООБЩЕНИЯ
-bot.on("message", async msg => {
+// MESSAGE
+bot.on("message", async (msg) => {
   const chatId = msg.chat.id
   const userId = msg.from.id
   const text = msg.text
@@ -204,7 +173,35 @@ bot.on("message", async msg => {
 
   users.add(userId)
 
-  // 🔧 админ действия
+  // кнопки
+  if (text === "📥 Скачать видео") {
+    return bot.sendMessage(chatId, "📎 Отправь ссылку TikTok")
+  }
+
+  if (text === "👥 Пригласить") {
+    return bot.sendMessage(chatId,
+`https://t.me/${BOT_USERNAME}?start=${userId}`)
+  }
+
+  if (text === "💖 Поддержать") {
+    return bot.sendMessage(chatId, "💖 Спасибо ❤️")
+  }
+
+  if (text === "⚙️ Админ панель" && userId === ADMIN_ID) {
+    return bot.sendMessage(chatId, "⚙️ Админ панель", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "📊 Статистика", callback_data: "admin_stats" }],
+          [{ text: "📢 Рассылка", callback_data: "admin_broadcast" }],
+          [{ text: "📣 Реклама", callback_data: "admin_ads" }],
+          [{ text: "🚫 Бан", callback_data: "admin_ban" }],
+          [{ text: "✅ Разбан", callback_data: "admin_unban" }]
+        ]
+      }
+    })
+  }
+
+  // админ действия
   if (userId === ADMIN_ID) {
     if (adminState[userId] === "ban") {
       bannedUsers.add(Number(text))
@@ -218,17 +215,27 @@ bot.on("message", async msg => {
       return bot.sendMessage(chatId, "✅ Разбанен")
     }
 
-    if (adminState[userId] === "broadcast") {
+    if (adminState[userId] === "broadcast" || adminState[userId] === "ads") {
       adminState[userId] = null
+
       for (const id of users) {
         try {
-          await bot.sendMessage(id, text)
+          if (msg.text) await bot.sendMessage(id, msg.text)
+          else if (msg.photo) {
+            const p = msg.photo[msg.photo.length - 1].file_id
+            await bot.sendPhoto(id, p, { caption: msg.caption || "" })
+          }
+          else if (msg.video) {
+            await bot.sendVideo(id, msg.video.file_id, { caption: msg.caption || "" })
+          }
         } catch {}
       }
+
       return bot.sendMessage(chatId, "✅ Отправлено")
     }
   }
 
+  // tiktok
   const links = text.match(/https?:\/\/[^\s]*tiktok\.com\/[^\s]+/g)
   if (!links) return
 
@@ -236,8 +243,11 @@ bot.on("message", async msg => {
 
   totalRequests++
 
+  clearChat(chatId)
+
   for (const link of links) {
     const loading = await bot.sendMessage(chatId, "⏳ Скачиваю...")
+    track(chatId, loading)
 
     try {
       const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
@@ -245,9 +255,7 @@ bot.on("message", async msg => {
 
       const video = data.data.hdplay || data.data.play
 
-      await bot.deleteMessage(chatId, loading.message_id)
-
-      await bot.sendVideo(chatId, video, {
+      const sent = await bot.sendVideo(chatId, video, {
         caption: "📥 Готово",
         reply_markup: {
           inline_keyboard: [
@@ -257,14 +265,15 @@ bot.on("message", async msg => {
         }
       })
 
+      track(chatId, sent)
+
       totalDownloads++
 
     } catch {
-      bot.sendMessage(chatId, "❌ Ошибка при скачивании")
+      bot.sendMessage(chatId, "❌ Ошибка")
     }
   }
 })
 
-// ⚠️ ошибки
 process.on("unhandledRejection", console.error)
 process.on("uncaughtException", console.error)
