@@ -33,7 +33,7 @@ const adminState = {}
 let totalDownloads = 0
 let totalRequests = 0
 
-// очистка сообщений
+// очистка
 const lastMessages = new Map()
 
 function clearChat(chatId) {
@@ -81,6 +81,20 @@ async function toCircle(videoUrl, output) {
   })
 }
 
+// главное меню (кнопки снизу)
+function mainMenu(chatId, userId) {
+  return bot.sendMessage(chatId, "📌 Главное меню", {
+    reply_markup: {
+      keyboard: [
+        ["📥 Скачать видео"],
+        ["👥 Пригласить", "💖 Поддержать"],
+        ...(userId === ADMIN_ID ? [["⚙️ Админ панель"]] : [])
+      ],
+      resize_keyboard: true
+    }
+  })
+}
+
 // START
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id
@@ -93,20 +107,13 @@ bot.onText(/\/start/, (msg) => {
 
 🎬 Я скачиваю видео из TikTok без водяного знака
 
-📎 Отправь ссылку — и я скачаю 🚀`,
-  {
-    reply_markup: {
-      keyboard: [
-        ["📥 Скачать видео"],
-        ["👥 Пригласить", "💖 Поддержать"],
-        ...(userId === ADMIN_ID ? [["⚙️ Админ панель"]] : [])
-      ],
-      resize_keyboard: true
-    }
-  })
+📎 Отправь ссылку — и я скачаю 🚀`
+  )
+
+  mainMenu(chatId, userId)
 })
 
-// CALLBACK (inline)
+// INLINE (только админ + кружок)
 bot.on("callback_query", async (q) => {
   const chatId = q.message.chat.id
   const userId = q.from.id
@@ -168,12 +175,12 @@ bot.on("message", async (msg) => {
   if (!text) return
 
   if (bannedUsers.has(userId)) {
-    return bot.sendMessage(chatId, "🚫 Ты заблокирован")
+    return bot.sendMessage(chatId, "🚫 Заблокирован")
   }
 
   users.add(userId)
 
-  // кнопки
+  // кнопки снизу
   if (text === "📥 Скачать видео") {
     return bot.sendMessage(chatId, "📎 Отправь ссылку TikTok")
   }
@@ -187,6 +194,7 @@ bot.on("message", async (msg) => {
     return bot.sendMessage(chatId, "💖 Спасибо ❤️")
   }
 
+  // админка (inline)
   if (text === "⚙️ Админ панель" && userId === ADMIN_ID) {
     return bot.sendMessage(chatId, "⚙️ Админ панель", {
       reply_markup: {
@@ -242,7 +250,6 @@ bot.on("message", async (msg) => {
   if (isSpam(userId)) return
 
   totalRequests++
-
   clearChat(chatId)
 
   for (const link of links) {
@@ -266,7 +273,6 @@ bot.on("message", async (msg) => {
       })
 
       track(chatId, sent)
-
       totalDownloads++
 
     } catch {
