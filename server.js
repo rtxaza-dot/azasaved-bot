@@ -2,7 +2,6 @@ import TelegramBot from "node-telegram-bot-api"
 import axios from "axios"
 import express from "express"
 import dotenv from "dotenv"
-import ffmpeg from "fluent-ffmpeg"
 import fs from "fs"
 import path from "path"
 
@@ -12,151 +11,131 @@ const TOKEN = process.env.TOKEN
 const PORT = process.env.PORT || 3001
 const ADMIN_ID = 5331869155
 
-// --- НАСТРОЙКА FFmpeg ДЛЯ WINDOWS ---
-// Если ты распаковал ffmpeg в другое место, измени путь ниже
-const winFfmpegPath = 'C:\\ffmpeg\\bin\\ffmpeg.exe';
-const winFfprobePath = 'C:\\ffmpeg\\bin\\ffprobe.exe';
-
-if (fs.existsSync(winFfmpegPath)) {
-    ffmpeg.setFfmpegPath(winFfmpegPath);
-    ffmpeg.setFfprobePath(winFfprobePath);
-    console.log("✅ FFmpeg найден и подключен");
-} else {
-    console.log("⚠️ FFmpeg.exe не найден по пути C:\\ffmpeg\\bin\\. Кружки могут не работать.");
+if (!TOKEN) {
+    console.log("❌ Нет токена")
+    process.exit(1)
 }
 
-// Server
+// --- SERVER ---
 const app = express()
 app.get("/", (req, res) => res.send("Бот работает"))
-app.listen(PORT, () => console.log(`🌐 Порт: ${PORT}`))
+app.listen(PORT, () => console.log(`🌐 Сервер: ${PORT}`))
 
-const bot = new TelegramBot(TOKEN, { polling: false })
+// --- BOT ---
+const bot = new TelegramBot(TOKEN, {
+    polling: {
+        interval: 300,
+        autoStart: true
+    }
+})
 
-// Кэш для хранения ссылок (для callback_data)
-const videoCache = new Map()
-
-async function startBot() {
+// --- ЗАЩИТА ОТ 409 ОШИБКИ ---
+async function initBot() {
     try {
         await bot.deleteWebHook()
-        await bot.startPolling({ interval: 300 })
+        console.log("🧹 Webhook удалён")
+    } catch (e) {}
+
+    try {
+        await bot.stopPolling()
+    } catch (e) {}
+
+    try {
+        await bot.startPolling()
         console.log("🤖 Бот запущен")
     } catch (e) {
-        console.log("❌ Ошибка запуска:", e)
+        console.log("❌ Ошибка запуска:", e.message)
     }
 }
-startBot()
+initBot()
 
-// Обработка кружка
-async function toCircle(videoUrl, output) {
-    const tempInput = `temp_in_${Date.now()}.mp4`;
-    
-    // Скачиваем видео во временный файл
-    const res = await axios({ url: videoUrl, responseType: "stream" });
-    const writer = fs.createWriteStream(tempInput);
-    res.data.pipe(writer);
-
-    await new Promise(r => writer.on("finish", r));
-
-    return new Promise((resolve, reject) => {
-        ffmpeg(tempInput)
-            .videoFilters([
-                "crop='min(iw,ih)':'min(iw,ih)'", // Обрезка в квадрат
-                "scale=640:640"                  // Размер для кружка
-            ])
-            .outputOptions([
-                '-c:v libx264',
-                '-pix_fmt yuv420p',
-                '-b:v 1000k',
-                '-aspect 1:1'
-            ])
-            .output(output)
-            .on("end", () => {
-                if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput);
-                resolve();
-            })
-            .on("error", (err) => {
-                if (fs.existsSync(tempInput)) fs.unlinkSync(tempInput);
-                reject(err);
-            })
-            .run();
-    });
-}
-
-// Меню
+// --- МЕНЮ ---
 const getMenu = (userId) => ({
     reply_markup: {
         keyboard: [
-            ["📥 Скачать видео"],
-            ["👥 Пригласить", "💖 Поддержать"],
-            ...(userId === ADMIN_ID ? [["⚙️ Админ панель"]] : [])
+            ["📥 Скачать TikTok"],
+            ...(userId === ADMIN_ID ? [["⚙️ Админ"]] : [])
         ],
         resize_keyboard: true
     }
-});
+})
 
+// --- START ---
 bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, `👋 Привет! Пришли ссылку на TikTok.`, getMenu(msg.from.id));
-});
+    bot.sendMessage(msg.chat.id, "👋 Кидай ссылку TikTok", getMenu(msg.from.id))
+})
 
-bot.on("callback_query", async (q) => {
-    const chatId = q.message.chat.id;
-    if (q.data.startsWith("circle_")) {
-        const cacheId = q.data.replace("circle_", "");
-        const videoUrl = videoCache.get(cacheId);
+// --- ФУНКЦИЯ СКАЧИВАНИЯ ---
+async function downloadTikTok(link) {
+    const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
+    const { data } = await axios.get(api)
 
-        if (!videoUrl) return bot.answerCallbackQuery(q.id, { text: "❌ Ссылка устарела" });
+    if (!data || !data.data) throw new Error("API error")
 
-        const status = await bot.sendMessage(chatId, "⏳ Обработка кружка...");
-        const output = `circle_${Date.now()}.mp4`;
-
-        try {
-            await toCircle(videoUrl, output);
-            await bot.sendVideoNote(chatId, output);
-            bot.deleteMessage(chatId, status.message_id).catch(() => {});
-        } catch (e) {
-            console.error(e);
-            bot.editMessageText("❌ Ошибка при создании кружка. Проверь FFmpeg.", { chat_id: chatId, message_id: status.message_id });
-        } finally {
-            if (fs.existsSync(output)) fs.unlinkSync(output);
-        }
+    return {
+        video: data.data.hdplay || data.data.play,
+        images: data.data.images || [],
+        author: data.data.author?.unique_id || "unknown"
     }
-});
+}
 
+// --- ОБРАБОТКА ---
 bot.on("message", async (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text;
-    if (!text || text.startsWith("/")) return;
+    const chatId = msg.chat.id
+    const text = msg.text
 
-    const links = text.match(/https?:\/\/(www\.|vm\.|vt\.)?tiktok\.com\/[^\s]+/g);
-    if (!links) return;
+    if (!text || text.startsWith("/")) return
+
+    const links = text.match(/https?:\/\/(www\.|vm\.|vt\.)?tiktok\.com\/[^\s]+/g)
+    if (!links) return
 
     for (const link of links) {
-        const wait = await bot.sendMessage(chatId, "⏳ Загрузка...");
+        const wait = await bot.sendMessage(chatId, "⏳ Обрабатываю...")
+
         try {
-            const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`;
-            const { data } = await axios.get(api);
-            const videoUrl = data?.data?.hdplay || data?.data?.play;
+            const data = await downloadTikTok(link)
 
-            if (!videoUrl) throw new Error("No video");
-
-            const cacheId = Math.random().toString(36).substring(7);
-            videoCache.set(cacheId, videoUrl);
-
-            // Отправляем видео потоком (Stream), чтобы не было ошибок доступа
-            const videoStream = await axios({ url: videoUrl, responseType: "stream" });
-
-            await bot.sendVideo(chatId, videoStream.data, {
-                caption: `✅ Видео скачано!\n👤 Автор: ${data.data.author.unique_id}`,
-                reply_markup: {
-                    inline_keyboard: [
-                        [{ text: "🔘 Сделать кружок", callback_data: `circle_${cacheId}` }],
-                        [{ text: "🔗 Прямая ссылка", url: videoUrl }]
-                    ]
+            // --- ФОТО ---
+            if (data.images.length > 0) {
+                for (let img of data.images) {
+                    await bot.sendPhoto(chatId, img)
                 }
-            });
-            bot.deleteMessage(chatId, wait.message_id).catch(() => {});
+
+                await bot.sendMessage(chatId, `✅ Фото скачаны\n👤 ${data.author}`)
+            }
+
+            // --- ВИДЕО ---
+            else if (data.video) {
+                const stream = await axios({
+                    url: data.video,
+                    responseType: "stream"
+                })
+
+                await bot.sendVideo(chatId, stream.data, {
+                    caption: `✅ Видео скачано\n👤 ${data.author}`
+                })
+            } else {
+                throw new Error("Нет контента")
+            }
+
+            bot.deleteMessage(chatId, wait.message_id).catch(() => {})
+
         } catch (e) {
-            bot.editMessageText("❌ Не удалось скачать видео.", { chat_id: chatId, message_id: wait.message_id });
+            console.error(e)
+
+            bot.editMessageText("❌ Ошибка при скачивании", {
+                chat_id: chatId,
+                message_id: wait.message_id
+            })
         }
     }
-});
+})
+
+// --- АНТИ КРАШ ---
+process.on("uncaughtException", (err) => {
+    console.log("💥 Ошибка:", err.message)
+})
+
+process.on("unhandledRejection", (err) => {
+    console.log("💥 Promise ошибка:", err)
+})
