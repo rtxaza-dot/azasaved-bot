@@ -1,3 +1,4 @@
+
 import TelegramBot from "node-telegram-bot-api"
 import axios from "axios"
 import express from "express"
@@ -8,7 +9,7 @@ import fs from "fs"
 dotenv.config()
 
 const TOKEN = process.env.TOKEN
-const PORT = process.env.PORT || 3001 // 👈 поменяли порт
+const PORT = process.env.PORT || 3001
 const BOT_USERNAME = "AZASAVED_bot"
 const ADMIN_ID = 5331869155
 
@@ -17,7 +18,7 @@ if (!TOKEN) {
   process.exit(1)
 }
 
-// server (без падений)
+// server
 const app = express()
 app.get("/", (req, res) => res.send("Bot running"))
 
@@ -25,15 +26,22 @@ app.listen(PORT, () => {
   console.log(`🌐 Server started on ${PORT}`)
 })
 
-// bot
-const bot = new TelegramBot(TOKEN, {
-  polling: {
-    interval: 300,
-    autoStart: true
-  }
-})
+// bot (FIX 409 ERROR)
+const bot = new TelegramBot(TOKEN, { polling: false })
 
-console.log("🤖 Bot started")
+async function startBot() {
+  try {
+    await bot.deleteWebHook() // 💥 убирает конфликт
+    await bot.startPolling({ interval: 300 })
+    console.log("🤖 Bot started")
+  } catch (e) {
+    console.log("❌ Bot start error:", e)
+  }
+}
+
+startBot()
+
+bot.on("polling_error", console.log)
 
 // storage
 const users = new Set()
@@ -156,7 +164,6 @@ bot.on("callback_query", async (q) => {
     return bot.sendMessage(chatId, "ID:")
   }
 
-  // кружок
   if (data.startsWith("circle_")) {
     const video = data.replace("circle_", "")
 
@@ -292,3 +299,4 @@ bot.on("message", async (msg) => {
 
 process.on("unhandledRejection", console.error)
 process.on("uncaughtException", console.error)
+
