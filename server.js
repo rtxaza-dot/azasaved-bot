@@ -12,6 +12,8 @@ const PORT = process.env.PORT || 3000
 const BOT_USERNAME = "AZASAVED_bot"
 const ADMIN_ID = 5331869155
 
+const GIF_URL = "https://t3.ftcdn.net/jpg/19/69/79/14/360_F_1969791443_yb6AQYxFAvvlB78Q3Lqv6JVbtjuC9ZAT.jpg"
+
 if(!TOKEN){
   console.log("TOKEN missing")
   process.exit(1)
@@ -28,11 +30,7 @@ console.log("Bot started")
 
 // база
 const users = {}
-
-// админ
 const adminState = {}
-
-// бан
 const bannedUsers = new Set()
 
 // статистика
@@ -65,7 +63,6 @@ async function runQueue(){
 
 // антиспам
 const cooldown = new Map()
-
 function antiSpam(id){
   const now = Date.now()
   if(cooldown.has(id)){
@@ -75,7 +72,7 @@ function antiSpam(id){
   return false
 }
 
-// 🎬 СДЕЛАТЬ КРУЖОК
+// 🎬 сделать кружок
 async function toCircle(videoUrl, output){
   const input = `input_${Date.now()}.mp4`
 
@@ -103,34 +100,34 @@ async function toCircle(videoUrl, output){
   })
 }
 
-// меню
-function menu(chatId,userId){
-  const buttons = [
-    [{text:"💖 Поддержать",callback_data:"donate"}],
-    [{text:"👥 Пригласить",callback_data:"invite"}]
-  ]
-
-  if(userId === ADMIN_ID){
-    buttons.push([{text:"⚙️ Админ панель",callback_data:"admin"}])
-  }
-
-  bot.sendMessage(chatId,"🎬 TikTok Downloader",{
-    reply_markup:{inline_keyboard:buttons}
-  })
-}
-
-// start
+// 🔥 START (КРАСИВЫЙ)
 bot.onText(/\/start/, msg=>{
   const chatId = msg.chat.id
   const userId = msg.from.id
 
-  bot.sendMessage(chatId,
+  if(!users[userId]) users[userId]=true
+
+  const buttons = [
+    [{text:"📥 Скачать видео TikTok", callback_data:"help"}],
+    [{text:"💖 Поддержать", callback_data:"donate"}],
+    [{text:"👥 Пригласить", callback_data:"invite"}]
+  ]
+
+  if(userId === ADMIN_ID){
+    buttons.push([{text:"⚙️ Админ панель", callback_data:"admin"}])
+  }
+
+  bot.sendPhoto(chatId, GIF_URL,{
+    caption:
 `👋 Привет!
 
-📥 Отправь ссылку TikTok — я скачаю без водяного знака 🎬`
-  )
+🎬 Я скачиваю видео из TikTok без водяного знака
 
-  menu(chatId,userId)
+📎 Просто отправь ссылку — и я сразу скачаю 🚀`,
+    reply_markup:{
+      inline_keyboard: buttons
+    }
+  })
 })
 
 // кнопки
@@ -138,6 +135,16 @@ bot.on("callback_query", async q=>{
   const chatId = q.message.chat.id
   const userId = q.from.id
   const data = q.data
+
+  if(data==="help"){
+    bot.sendMessage(chatId,
+`📥 Как скачать видео?
+
+1. Скопируй ссылку TikTok
+2. Отправь её сюда
+
+🎬 Я скачаю без водяного знака 🚀`)
+  }
 
   if(data==="invite"){
     bot.sendMessage(chatId,
@@ -148,7 +155,7 @@ bot.on("callback_query", async q=>{
     bot.sendMessage(chatId,"💖 Спасибо за поддержку ❤️")
   }
 
-  // 🔘 СДЕЛАТЬ КРУЖОК
+  // 🔘 кружок
   if(data.startsWith("circle_")){
     const video = data.replace("circle_","")
 
@@ -165,7 +172,7 @@ bot.on("callback_query", async q=>{
       bot.deleteMessage(chatId,loading.message_id)
 
     }catch{
-      bot.sendMessage(chatId,"❌ Ошибка при создании кружка")
+      bot.sendMessage(chatId,"❌ Ошибка")
     }
   }
 
@@ -197,12 +204,12 @@ bot.on("callback_query", async q=>{
 
   if(data==="admin_ban"){
     adminState[userId] = "ban"
-    bot.sendMessage(chatId,"ID юзера:")
+    bot.sendMessage(chatId,"ID:")
   }
 
   if(data==="admin_unban"){
     adminState[userId] = "unban"
-    bot.sendMessage(chatId,"ID юзера:")
+    bot.sendMessage(chatId,"ID:")
   }
 })
 
@@ -218,8 +225,6 @@ bot.on("message", async msg=>{
   if(bannedUsers.has(userId)){
     return bot.sendMessage(chatId,"🚫 Заблокирован")
   }
-
-  if(!users[userId]) users[userId]=true
 
   // бан
   if(userId===ADMIN_ID && adminState[userId]==="ban"){
@@ -238,9 +243,7 @@ bot.on("message", async msg=>{
   if(userId===ADMIN_ID && adminState[userId]==="broadcast"){
     adminState[userId]=null
     for(const id of Object.keys(users)){
-      try{
-        await bot.sendMessage(id,text)
-      }catch{}
+      try{ await bot.sendMessage(id,text) }catch{}
     }
     return bot.sendMessage(chatId,"✅ Отправлено")
   }
