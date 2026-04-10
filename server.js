@@ -12,68 +12,41 @@ const PORT = process.env.PORT || 3000
 const BOT_USERNAME = "AZASAVED_bot"
 const ADMIN_ID = 5331869155
 
-const GIF_URL = "https://t3.ftcdn.net/jpg/19/69/79/14/360_F_1969791443_yb6AQYxFAvvlB78Q3Lqv6JVbtjuC9ZAT.jpg"
+const START_IMAGE = "https://t3.ftcdn.net/jpg/19/69/79/14/360_F_1969791443_yb6AQYxFAvvlB78Q3Lqv6JVbtjuC9ZAT.jpg"
 
-if(!TOKEN){
-  console.log("TOKEN missing")
+if (!TOKEN) {
+  console.log("❌ TOKEN missing")
   process.exit(1)
 }
 
-// express
+// 🌐 Express (для хостинга)
 const app = express()
-app.get("/", (req,res)=>res.send("Bot running"))
-app.listen(PORT)
+app.get("/", (req, res) => res.send("Bot running"))
+app.listen(PORT, () => console.log("🌐 Server started"))
 
-// bot
-const bot = new TelegramBot(TOKEN,{ polling:true })
-console.log("Bot started")
+// 🤖 Bot
+const bot = new TelegramBot(TOKEN, { polling: true })
+console.log("🤖 Bot started")
 
-// база
-const users = {}
-const adminState = {}
+// 🧠 Хранилище
+const users = new Set()
 const bannedUsers = new Set()
+const adminState = {}
 
-// статистика
 let totalDownloads = 0
 let totalRequests = 0
 
-// cache
-const cache = new Map()
-
-// очередь
-const queue = []
-let working = false
-
-function addQueue(task){
-  queue.push(task)
-  runQueue()
-}
-
-async function runQueue(){
-  if(working) return
-  working = true
-
-  while(queue.length){
-    const job = queue.shift()
-    try{ await job() }catch(e){ console.log(e) }
-  }
-
-  working = false
-}
-
-// антиспам
+// ⚡ Антиспам
 const cooldown = new Map()
-function antiSpam(id){
+function isSpam(id) {
   const now = Date.now()
-  if(cooldown.has(id)){
-    if(now - cooldown.get(id) < 1500) return true
-  }
-  cooldown.set(id,now)
+  if (cooldown.has(id) && now - cooldown.get(id) < 1500) return true
+  cooldown.set(id, now)
   return false
 }
 
-// 🎬 сделать кружок
-async function toCircle(videoUrl, output){
+// 🎬 Конвертация в кружок
+async function toCircle(videoUrl, output) {
   const input = `input_${Date.now()}.mp4`
 
   const response = await axios({
@@ -85,13 +58,13 @@ async function toCircle(videoUrl, output){
   const writer = fs.createWriteStream(input)
   response.data.pipe(writer)
 
-  await new Promise(res=>writer.on("finish",res))
+  await new Promise(res => writer.on("finish", res))
 
-  return new Promise((resolve,reject)=>{
+  return new Promise((resolve, reject) => {
     ffmpeg(input)
       .videoFilters("crop='min(iw,ih)':'min(iw,ih)',scale=640:640")
       .output(output)
-      .on("end", ()=>{
+      .on("end", () => {
         fs.unlinkSync(input)
         resolve()
       })
@@ -100,191 +73,198 @@ async function toCircle(videoUrl, output){
   })
 }
 
-// 🔥 START (КРАСИВЫЙ)
-bot.onText(/\/start/, msg=>{
+// 🚀 START
+bot.onText(/\/start/, msg => {
   const chatId = msg.chat.id
   const userId = msg.from.id
 
-  if(!users[userId]) users[userId]=true
+  users.add(userId)
 
   const buttons = [
-    [{text:"📥 Скачать видео TikTok", callback_data:"help"}],
-    [{text:"💖 Поддержать", callback_data:"donate"}],
-    [{text:"👥 Пригласить", callback_data:"invite"}]
+    [
+      { text: "📥 Скачать", callback_data: "help" },
+      { text: "👥 Пригласить", callback_data: "invite" }
+    ],
+    [
+      { text: "💖 Поддержать", callback_data: "donate" }
+    ]
   ]
 
-  if(userId === ADMIN_ID){
-    buttons.push([{text:"⚙️ Админ панель", callback_data:"admin"}])
+  if (userId === ADMIN_ID) {
+    buttons.push([{ text: "⚙️ Админ панель", callback_data: "admin" }])
   }
 
-  bot.sendPhoto(chatId, GIF_URL,{
-    caption:
-`👋 Привет!
+  bot.sendPhoto(chatId, START_IMAGE, {
+    caption: `👋 Привет!
 
 🎬 Я скачиваю видео из TikTok без водяного знака
 
 📎 Просто отправь ссылку — и я сразу скачаю 🚀`,
-    reply_markup:{
+    reply_markup: {
       inline_keyboard: buttons
     }
   })
 })
 
-// кнопки
-bot.on("callback_query", async q=>{
+// 🎛 КНОПКИ
+bot.on("callback_query", async q => {
   const chatId = q.message.chat.id
   const userId = q.from.id
   const data = q.data
 
-  if(data==="help"){
-    bot.sendMessage(chatId,
-`📥 Как скачать видео?
+  if (data === "help") {
+    return bot.sendMessage(chatId,
+`📥 Как скачать видео:
 
 1. Скопируй ссылку TikTok
-2. Отправь её сюда
+2. Отправь сюда
 
-🎬 Я скачаю без водяного знака 🚀`)
+🚀 Я скачаю без водяного знака`)
   }
 
-  if(data==="invite"){
-    bot.sendMessage(chatId,
+  if (data === "invite") {
+    return bot.sendMessage(chatId,
 `👥 https://t.me/${BOT_USERNAME}?start=${userId}`)
   }
 
-  if(data==="donate"){
-    bot.sendMessage(chatId,"💖 Спасибо за поддержку ❤️")
+  if (data === "donate") {
+    return bot.sendMessage(chatId, "💖 Спасибо за поддержку ❤️")
   }
 
   // 🔘 кружок
-  if(data.startsWith("circle_")){
-    const video = data.replace("circle_","")
+  if (data.startsWith("circle_")) {
+    const video = data.replace("circle_", "")
 
-    const loading = await bot.sendMessage(chatId,"⏳ Делаю кружок...")
+    const loading = await bot.sendMessage(chatId, "⏳ Делаю кружок...")
 
-    try{
+    try {
       const output = `circle_${Date.now()}.mp4`
 
       await toCircle(video, output)
-
       await bot.sendVideoNote(chatId, output)
 
       fs.unlinkSync(output)
-      bot.deleteMessage(chatId,loading.message_id)
+      bot.deleteMessage(chatId, loading.message_id)
 
-    }catch{
-      bot.sendMessage(chatId,"❌ Ошибка")
+    } catch {
+      bot.sendMessage(chatId, "❌ Ошибка при создании кружка")
     }
   }
 
-  // админка
-  if(data==="admin" && userId===ADMIN_ID){
-    bot.sendMessage(chatId,"⚙️ Админ панель",{
-      reply_markup:{
-        inline_keyboard:[
-          [{text:"📊 Статистика",callback_data:"admin_stats"}],
-          [{text:"📢 Рассылка",callback_data:"admin_broadcast"}],
-          [{text:"🚫 Бан",callback_data:"admin_ban"}],
-          [{text:"✅ Разбан",callback_data:"admin_unban"}]
+  // ⚙️ Админка
+  if (data === "admin" && userId === ADMIN_ID) {
+    return bot.sendMessage(chatId, "⚙️ Админ панель", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "📊 Статистика", callback_data: "admin_stats" }],
+          [{ text: "📢 Рассылка", callback_data: "admin_broadcast" }],
+          [{ text: "🚫 Бан", callback_data: "admin_ban" }],
+          [{ text: "✅ Разбан", callback_data: "admin_unban" }]
         ]
       }
     })
   }
 
-  if(data==="admin_stats"){
-    bot.sendMessage(chatId,
-`👥 ${Object.keys(users).length}
-📥 ${totalDownloads}
-⚡ ${totalRequests}`)
+  if (data === "admin_stats") {
+    return bot.sendMessage(chatId,
+`📊 Статистика:
+
+👥 Пользователей: ${users.size}
+📥 Скачиваний: ${totalDownloads}
+⚡ Запросов: ${totalRequests}`)
   }
 
-  if(data==="admin_broadcast"){
+  if (data === "admin_broadcast") {
     adminState[userId] = "broadcast"
-    bot.sendMessage(chatId,"📢 Отправь сообщение")
+    return bot.sendMessage(chatId, "📢 Отправь сообщение")
   }
 
-  if(data==="admin_ban"){
+  if (data === "admin_ban") {
     adminState[userId] = "ban"
-    bot.sendMessage(chatId,"ID:")
+    return bot.sendMessage(chatId, "Введи ID:")
   }
 
-  if(data==="admin_unban"){
+  if (data === "admin_unban") {
     adminState[userId] = "unban"
-    bot.sendMessage(chatId,"ID:")
+    return bot.sendMessage(chatId, "Введи ID:")
   }
 })
 
-// сообщения
-bot.on("message", async msg=>{
+// 📩 СООБЩЕНИЯ
+bot.on("message", async msg => {
   const chatId = msg.chat.id
   const userId = msg.from.id
-
-  if(!msg.text) return
-
   const text = msg.text
 
-  if(bannedUsers.has(userId)){
-    return bot.sendMessage(chatId,"🚫 Заблокирован")
+  if (!text) return
+
+  if (bannedUsers.has(userId)) {
+    return bot.sendMessage(chatId, "🚫 Ты заблокирован")
   }
 
-  // бан
-  if(userId===ADMIN_ID && adminState[userId]==="ban"){
-    bannedUsers.add(Number(text))
-    adminState[userId]=null
-    return bot.sendMessage(chatId,"🚫 Забанен")
-  }
+  users.add(userId)
 
-  if(userId===ADMIN_ID && adminState[userId]==="unban"){
-    bannedUsers.delete(Number(text))
-    adminState[userId]=null
-    return bot.sendMessage(chatId,"✅ Разбанен")
-  }
-
-  // рассылка
-  if(userId===ADMIN_ID && adminState[userId]==="broadcast"){
-    adminState[userId]=null
-    for(const id of Object.keys(users)){
-      try{ await bot.sendMessage(id,text) }catch{}
+  // 🔧 админ действия
+  if (userId === ADMIN_ID) {
+    if (adminState[userId] === "ban") {
+      bannedUsers.add(Number(text))
+      adminState[userId] = null
+      return bot.sendMessage(chatId, "🚫 Забанен")
     }
-    return bot.sendMessage(chatId,"✅ Отправлено")
+
+    if (adminState[userId] === "unban") {
+      bannedUsers.delete(Number(text))
+      adminState[userId] = null
+      return bot.sendMessage(chatId, "✅ Разбанен")
+    }
+
+    if (adminState[userId] === "broadcast") {
+      adminState[userId] = null
+      for (const id of users) {
+        try {
+          await bot.sendMessage(id, text)
+        } catch {}
+      }
+      return bot.sendMessage(chatId, "✅ Отправлено")
+    }
   }
 
   const links = text.match(/https?:\/\/[^\s]*tiktok\.com\/[^\s]+/g)
-  if(!links) return
+  if (!links) return
 
-  if(antiSpam(userId)) return
+  if (isSpam(userId)) return
 
   totalRequests++
 
-  for(const link of links){
-    addQueue(async ()=>{
-      const loading = await bot.sendMessage(chatId,"⏳ Скачиваю...")
+  for (const link of links) {
+    const loading = await bot.sendMessage(chatId, "⏳ Скачиваю...")
 
-      try{
-        const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
-        const {data} = await axios.get(api)
+    try {
+      const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
+      const { data } = await axios.get(api)
 
-        const video = data.data.hdplay || data.data.play
+      const video = data.data.hdplay || data.data.play
 
-        await bot.deleteMessage(chatId,loading.message_id)
+      await bot.deleteMessage(chatId, loading.message_id)
 
-        await bot.sendVideo(chatId, video,{
-          caption:"📥 Готово",
-          reply_markup:{
-            inline_keyboard:[
-              [{text:"🔘 Сделать кружок",callback_data:`circle_${video}`}],
-              [{text:"💾 Скачать", url: video}]
-            ]
-          }
-        })
+      await bot.sendVideo(chatId, video, {
+        caption: "📥 Готово",
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🔘 Сделать кружок", callback_data: `circle_${video}` }],
+            [{ text: "💾 Скачать", url: video }]
+          ]
+        }
+      })
 
-        totalDownloads++
+      totalDownloads++
 
-      }catch{
-        bot.sendMessage(chatId,"❌ Ошибка")
-      }
-    })
+    } catch {
+      bot.sendMessage(chatId, "❌ Ошибка при скачивании")
+    }
   }
 })
 
-process.on("unhandledRejection",console.error)
-process.on("uncaughtException",console.error)
+// ⚠️ ошибки
+process.on("unhandledRejection", console.error)
+process.on("uncaughtException", console.error)
