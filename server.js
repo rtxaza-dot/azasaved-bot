@@ -2,140 +2,187 @@ import TelegramBot from "node-telegram-bot-api"
 import axios from "axios"
 import express from "express"
 import dotenv from "dotenv"
-import fs from "fs"
-import path from "path"
 
 dotenv.config()
 
 const TOKEN = process.env.TOKEN
-const PORT = process.env.PORT || 3001
-const ADMIN_ID = 5331869155
+const PORT = process.env.PORT || 3000
+const ADMIN_ID = Number(process.env.ADMIN_ID)
+const BOT_USERNAME = "AZASAVED_bot"
 
 if (!TOKEN) {
-    console.log("❌ Нет токена")
-    process.exit(1)
+  console.log("❌ TOKEN missing")
+  process.exit(1)
 }
 
-// --- SERVER ---
+// 🌐 express (для Railway / Render)
 const app = express()
-app.get("/", (req, res) => res.send("Бот работает"))
-app.listen(PORT, () => console.log(`🌐 Сервер: ${PORT}`))
+app.get("/", (req, res) => res.send("Bot running"))
+app.listen(PORT, () => console.log("🌐 Server running"))
 
-// --- BOT ---
-const bot = new TelegramBot(TOKEN, {
-    polling: {
-        interval: 300,
-        autoStart: true
-    }
-})
+// 🤖 bot
+const bot = new TelegramBot(TOKEN, { polling: true })
+console.log("🤖 Bot started")
 
-// --- ЗАЩИТА ОТ 409 ОШИБКИ ---
-async function initBot() {
+// 🧠 cache
+const cache = new Map()
+
+// 📦 очередь
+const queue = []
+let working = false
+
+function addQueue(task) {
+  queue.push(task)
+  runQueue()
+}
+
+async function runQueue() {
+  if (working) return
+  working = true
+
+  while (queue.length) {
+    const job = queue.shift()
     try {
-        await bot.deleteWebHook()
-        console.log("🧹 Webhook удалён")
-    } catch (e) {}
-
-    try {
-        await bot.stopPolling()
-    } catch (e) {}
-
-    try {
-        await bot.startPolling()
-        console.log("🤖 Бот запущен")
+      await job()
     } catch (e) {
-        console.log("❌ Ошибка запуска:", e.message)
+      console.log("Queue error:", e)
     }
-}
-initBot()
+  }
 
-// --- МЕНЮ ---
-const getMenu = (userId) => ({
-    reply_markup: {
-        keyboard: [
-            ["📥 Скачать TikTok"],
-            ...(userId === ADMIN_ID ? [["⚙️ Админ"]] : [])
-        ],
-        resize_keyboard: true
-    }
-})
-
-// --- START ---
-bot.onText(/\/start/, (msg) => {
-    bot.sendMessage(msg.chat.id, "👋 Кидай ссылку TikTok", getMenu(msg.from.id))
-})
-
-// --- ФУНКЦИЯ СКАЧИВАНИЯ ---
-async function downloadTikTok(link) {
-    const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
-    const { data } = await axios.get(api)
-
-    if (!data || !data.data) throw new Error("API error")
-
-    return {
-        video: data.data.hdplay || data.data.play,
-        images: data.data.images || [],
-        author: data.data.author?.unique_id || "unknown"
-    }
+  working = false
 }
 
-// --- ОБРАБОТКА ---
-bot.on("message", async (msg) => {
-    const chatId = msg.chat.id
-    const text = msg.text
+// 🚫 антиспам
+const cooldown = new Map()
 
-    if (!text || text.startsWith("/")) return
+function antiSpam(id) {
+  const now = Date.now()
+  if (cooldown.has(id)) {
+    if (now - cooldown.get(id) < 1500) return true
+  }
+  cooldown.set(id, now)
+  return false
+}
 
-    const links = text.match(/https?:\/\/(www\.|vm\.|vt\.)?tiktok\.com\/[^\s]+/g)
-    if (!links) return
+// 📥 TikTok API
+async function getTikTokData(url) {
+  const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(url)}`
+  const { data } = await axios.get(api)
 
-    for (const link of links) {
-        const wait = await bot.sendMessage(chatId, "⏳ Обрабатываю...")
+  return {
+    video: data.data.hdplay || data.data.play,
+    music: data.data.music
+  }
+}
 
-        try {
-            const data = await downloadTikTok(link)
+// 📋 меню
+function menu(chatId, userId) {
+  const buttons = [
+    [{ text: "💖 Поддержать", callback_data: "donate" }]
+  ]
 
-            // --- ФОТО ---
-            if (data.images.length > 0) {
-                for (let img of data.images) {
-                    await bot.sendPhoto(chatId, img)
-                }
+  if (userId === ADMIN_ID) {
+    buttons.push([{ text: "⚙️ Админ", callback_data: "admin" }])
+  }
 
-                await bot.sendMessage(chatId, `✅ Фото скачаны\n👤 ${data.author}`)
+  bot.sendMessage(chatId, "🎬 TikTok Downloader", {
+    reply_markup: { inline_keyboard: buttons }
+  })
+}
+
+// ▶️ start
+bot.onText(/\/start/, msg => {
+  menu(msg.chat.id, msg.from.id)
+})
+
+// 🔘 кнопки
+bot.on("callback_query", async q => {
+  const chatId = q.message.chat.id
+  const userId = q.from.id
+  const data = q.data
+
+  if (data === "donate") {
+    bot.sendMessage(chatId, "💖 Поддержка:\n👉 @AZAkzn1")
+  }
+
+  if (data === "admin" && userId === ADMIN_ID) {
+    bot.sendMessage(chatId, "⚙️ Бот работает стабильно ✅")
+  }
+
+  if (data.startsWith("music_")) {
+    try {
+      const link = decodeURIComponent(data.replace("music_", ""))
+      const res = await getTikTokData(link)
+
+      await bot.sendAudio(chatId, res.music, {
+        title: "TikTok Sound"
+      })
+    } catch {
+      bot.sendMessage(chatId, "❌ Ошибка музыки")
+    }
+  }
+})
+
+// 💬 сообщения
+bot.on("message", async msg => {
+  const chatId = msg.chat.id
+  const userId = msg.from.id
+
+  if (!msg.text) return
+
+  const links = msg.text.match(/https?:\/\/[^\s]*tiktok\.com\/[^\s]+/g)
+  if (!links) return
+
+  if (antiSpam(userId)) return
+
+  for (const link of links) {
+    addQueue(async () => {
+
+      const loading = await bot.sendAnimation(
+        chatId,
+        "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif"
+      )
+
+      try {
+        // ⚡ cache
+        if (cache.has(link)) {
+          await bot.deleteMessage(chatId, loading.message_id)
+
+          return bot.sendVideo(chatId, cache.get(link), {
+            caption: `📥 Скачано через @${BOT_USERNAME}`,
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "💾 Скачать", url: cache.get(link) }],
+                [{ text: "🎵 Музыка", callback_data: `music_${encodeURIComponent(link)}` }]
+              ]
             }
-
-            // --- ВИДЕО ---
-            else if (data.video) {
-                const stream = await axios({
-                    url: data.video,
-                    responseType: "stream"
-                })
-
-                await bot.sendVideo(chatId, stream.data, {
-                    caption: `✅ Видео скачано\n👤 ${data.author}`
-                })
-            } else {
-                throw new Error("Нет контента")
-            }
-
-            bot.deleteMessage(chatId, wait.message_id).catch(() => {})
-
-        } catch (e) {
-            console.error(e)
-
-            bot.editMessageText("❌ Ошибка при скачивании", {
-                chat_id: chatId,
-                message_id: wait.message_id
-            })
+          })
         }
-    }
+
+        const data = await getTikTokData(link)
+
+        await bot.deleteMessage(chatId, loading.message_id)
+
+        const sent = await bot.sendVideo(chatId, data.video, {
+          caption: `📥 Скачано через @${BOT_USERNAME}`,
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "💾 Скачать", url: data.video }],
+              [{ text: "🎵 Музыка", callback_data: `music_${encodeURIComponent(link)}` }]
+            ]
+          }
+        })
+
+        cache.set(link, sent.video.file_id)
+
+      } catch (e) {
+        console.log("Download error:", e)
+        bot.sendMessage(chatId, "❌ Ошибка загрузки")
+      }
+    })
+  }
 })
 
-// --- АНТИ КРАШ ---
-process.on("uncaughtException", (err) => {
-    console.log("💥 Ошибка:", err.message)
-})
-
-process.on("unhandledRejection", (err) => {
-    console.log("💥 Promise ошибка:", err)
-})
+// 🛡 защита от крашей
+process.on("unhandledRejection", console.error)
+process.on("uncaughtException", console.error)
