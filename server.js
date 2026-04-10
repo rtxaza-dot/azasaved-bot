@@ -15,7 +15,7 @@ if(!TOKEN){
   process.exit(1)
 }
 
-// express (Railway)
+// express
 const app = express()
 app.get("/", (req,res)=>res.send("Bot running"))
 app.listen(PORT)
@@ -23,6 +23,12 @@ app.listen(PORT)
 // bot
 const bot = new TelegramBot(TOKEN,{ polling:true })
 console.log("Bot started")
+
+// база
+const users = {}
+
+// админ состояние
+const adminState = {}
 
 // cache
 const cache = new Map()
@@ -66,7 +72,7 @@ function menu(chatId,userId){
   ]
 
   if(userId === ADMIN_ID){
-    buttons.push([{text:"⚙️ Админ",callback_data:"admin"}])
+    buttons.push([{text:"⚙️ Админ панель",callback_data:"admin"}])
   }
 
   bot.sendMessage(chatId,"🎬 TikTok Downloader",{
@@ -74,9 +80,27 @@ function menu(chatId,userId){
   })
 }
 
-// start
+// 🔥 START + ПРИВЕТСТВИЕ
 bot.onText(/\/start/, msg=>{
-  menu(msg.chat.id,msg.from.id)
+  const chatId = msg.chat.id
+  const userId = msg.from.id
+
+  // приветствие + инструкция
+  bot.sendMessage(chatId,
+`👋 Добро пожаловать в моего бота!
+
+🎬 Я скачиваю TikTok видео без водяного знака.
+
+📌 Как пользоваться:
+1. Скопируй ссылку на TikTok видео
+2. Отправь её сюда
+3. Получи готовое видео и музыку
+
+⚡ Просто отправь ссылку и всё!
+
+👇 Ниже меню:`)
+
+  menu(chatId,userId)
 })
 
 // кнопки
@@ -86,11 +110,11 @@ bot.on("callback_query", async q=>{
   const data = q.data
 
   if(data==="donate"){
-    bot.sendMessage(chatId,"💖 Поддержка:\n👉 @AZAkzn1")
+    bot.sendMessage(chatId,`💖 Поддержать создателя\n👉 @AZAkzn1`)
   }
 
   if(data==="admin" && userId===ADMIN_ID){
-    bot.sendMessage(chatId,"⚙️ Админ панель\n\n✔️ Бот работает нормально")
+    bot.sendMessage(chatId,"⚙️ Админ панель")
   }
 
   if(data.startsWith("music_")){
@@ -110,6 +134,10 @@ bot.on("message", async msg=>{
 
   if(!msg.text) return
   const text = msg.text
+
+  if(!users[userId]){
+    users[userId] = true
+  }
 
   const links = text.match(/https?:\/\/[^\s]*tiktok\.com\/[^\s]+/g)
   if(!links) return
@@ -135,7 +163,7 @@ bot.on("message", async msg=>{
             reply_markup:{
               inline_keyboard:[
                 [{text:"💾 Скачать", url: cache.get(link)}],
-                [{text:"🎵 Музыка", callback_data:`music_${encodeURIComponent(link)}`}]
+                [{text:"🎵 Скачать музыку", callback_data:`music_${encodeURIComponent(link)}`}]
               ]
             }
           })
@@ -155,7 +183,7 @@ bot.on("message", async msg=>{
           reply_markup:{
             inline_keyboard:[
               [{text:"💾 Скачать", url: video}],
-              [{text:"🎵 Музыка", callback_data:`music_${encodeURIComponent(link)}`}]
+              [{text:"🎵 Скачать музыку", callback_data:`music_${encodeURIComponent(link)}`}]
             ]
           }
         })
