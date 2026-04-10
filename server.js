@@ -8,22 +8,32 @@ import fs from "fs"
 dotenv.config()
 
 const TOKEN = process.env.TOKEN
-const PORT = process.env.PORT || 3000
+const PORT = process.env.PORT || 3001 // 👈 поменяли порт
 const BOT_USERNAME = "AZASAVED_bot"
 const ADMIN_ID = 5331869155
 
 if (!TOKEN) {
-  console.log("TOKEN missing")
+  console.log("❌ TOKEN missing")
   process.exit(1)
 }
 
-// server
+// server (без падений)
 const app = express()
 app.get("/", (req, res) => res.send("Bot running"))
-app.listen(PORT)
+
+app.listen(PORT, () => {
+  console.log(`🌐 Server started on ${PORT}`)
+})
 
 // bot
-const bot = new TelegramBot(TOKEN, { polling: true })
+const bot = new TelegramBot(TOKEN, {
+  polling: {
+    interval: 300,
+    autoStart: true
+  }
+})
+
+console.log("🤖 Bot started")
 
 // storage
 const users = new Set()
@@ -58,7 +68,7 @@ function isSpam(id) {
   return false
 }
 
-// 🎬 кружок
+// кружок
 async function toCircle(videoUrl, output) {
   const input = `input_${Date.now()}.mp4`
 
@@ -81,7 +91,7 @@ async function toCircle(videoUrl, output) {
   })
 }
 
-// меню снизу
+// меню
 function mainMenu(chatId, userId) {
   return bot.sendMessage(chatId, "📌 Главное меню", {
     reply_markup: {
@@ -181,7 +191,6 @@ bot.on("message", async (msg) => {
 
   users.add(userId)
 
-  // кнопки
   if (text === "📥 Скачать видео") {
     return bot.sendMessage(chatId, "📎 Отправь ссылку TikTok")
   }
@@ -195,7 +204,6 @@ bot.on("message", async (msg) => {
     return bot.sendMessage(chatId, "💖 Спасибо ❤️")
   }
 
-  // админка
   if (text === "⚙️ Админ панель" && userId === ADMIN_ID) {
     return bot.sendMessage(chatId, "⚙️ Админ панель", {
       reply_markup: {
@@ -230,13 +238,6 @@ bot.on("message", async (msg) => {
       for (const id of users) {
         try {
           if (msg.text) await bot.sendMessage(id, msg.text)
-          else if (msg.photo) {
-            const p = msg.photo[msg.photo.length - 1].file_id
-            await bot.sendPhoto(id, p, { caption: msg.caption || "" })
-          }
-          else if (msg.video) {
-            await bot.sendVideo(id, msg.video.file_id, { caption: msg.caption || "" })
-          }
         } catch {}
       }
 
@@ -244,7 +245,7 @@ bot.on("message", async (msg) => {
     }
   }
 
-  // 🔥 ЛОВИМ ВСЕ ССЫЛКИ
+  // ссылки
   const links = text.match(/https?:\/\/[^\s]+/g)
   if (!links) return
 
@@ -260,20 +261,13 @@ bot.on("message", async (msg) => {
     try {
       let video = null
 
-      // основной API
-      try {
-        const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
-        const { data } = await axios.get(api)
+      const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
+      const { data } = await axios.get(api)
 
-        console.log(data)
-
-        video = data?.data?.hdplay || data?.data?.play
-      } catch (e) {
-        console.log("API error", e.message)
-      }
+      video = data?.data?.hdplay || data?.data?.play
 
       if (!video) {
-        return bot.sendMessage(chatId, "❌ Не удалось скачать видео")
+        return bot.sendMessage(chatId, "❌ Видео не найдено")
       }
 
       const sent = await bot.sendVideo(chatId, video, {
@@ -291,7 +285,7 @@ bot.on("message", async (msg) => {
 
     } catch (err) {
       console.log(err)
-      bot.sendMessage(chatId, "❌ Ошибка при скачивании")
+      bot.sendMessage(chatId, "❌ Ошибка скачивания")
     }
   }
 })
