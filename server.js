@@ -9,193 +9,274 @@ const TOKEN = process.env.TOKEN
 const PORT = process.env.PORT || 3000
 const BOT_USERNAME = "AZASAVED_bot"
 const ADMIN_ID = 5331869155
+const CHANNEL = "https://t.me/AZAkzn1"
 
-if(!TOKEN){
+if (!TOKEN) {
   console.log("TOKEN missing")
   process.exit(1)
 }
 
 // express
 const app = express()
-app.get("/", (req,res)=>res.send("Bot running"))
+app.get("/", (req, res) => res.send("Bot running"))
 app.listen(PORT)
 
 // bot
-const bot = new TelegramBot(TOKEN,{ polling:true })
+const bot = new TelegramBot(TOKEN, { polling: true })
 console.log("Bot started")
 
 // база
-const users = {}
+const users = new Set()
 
-// админ состояние
-const adminState = {}
+// админ режим
+let adminBroadcast = false
 
-// cache
+// кэш
 const cache = new Map()
 
-// очередь
+// антиспам
+const cooldown = new Map()
+function antiSpam(id) {
+  const now = Date.now()
+  if (cooldown.has(id)) {
+    if (now - cooldown.get(id) < 1500) return true
+  }
+  cooldown.set(id, now)
+  return false
+}
+
+// антибан очередь
+function sleep(ms) {
+  return new Promise(res => setTimeout(res, ms))
+}
+
 const queue = []
 let working = false
 
-function addQueue(task){
+function addQueue(task) {
   queue.push(task)
   runQueue()
 }
 
-async function runQueue(){
-  if(working) return
+async function runQueue() {
+  if (working) return
   working = true
 
-  while(queue.length){
+  while (queue.length) {
     const job = queue.shift()
-    try{ await job() }catch(e){ console.log(e) }
+    try {
+      await job()
+      await sleep(1200)
+    } catch (e) {
+      console.log(e)
+    }
   }
 
   working = false
 }
 
-// антиспам
-const cooldown = new Map()
-function antiSpam(id){
-  const now = Date.now()
-  if(cooldown.has(id)){
-    if(now - cooldown.get(id) < 1500) return true
-  }
-  cooldown.set(id,now)
-  return false
-}
-
-// меню
-function menu(chatId,userId){
-  const buttons = [
-    [{text:"💖 Поддержать",callback_data:"donate"}]
-  ]
-
-  if(userId === ADMIN_ID){
-    buttons.push([{text:"⚙️ Админ панель",callback_data:"admin"}])
-  }
-
-  bot.sendMessage(chatId,"🎬 TikTok Downloader",{
-    reply_markup:{inline_keyboard:buttons}
-  })
-}
-
-// 🔥 START + ПРИВЕТСТВИЕ
-bot.onText(/\/start/, msg=>{
+// старт
+bot.onText(/\/start/, msg => {
   const chatId = msg.chat.id
   const userId = msg.from.id
 
-  // приветствие + инструкция
+  users.add(userId)
+
   bot.sendMessage(chatId,
-`👋 Добро пожаловать в моего бота!
+`👋 Добро пожаловать!
 
 🎬 Я скачиваю TikTok видео без водяного знака.
 
 📌 Как пользоваться:
-1. Скопируй ссылку на TikTok видео
-2. Отправь её сюда
-3. Получи готовое видео и музыку
+1. Скинь ссылку на видео
+2. Я скачаю быстро ⚡
+3. Получишь видео или фото
 
-⚡ Просто отправь ссылку и всё!
+👇 Просто отправь ссылку`
+  )
 
-👇 Ниже меню:`)
-
-  menu(chatId,userId)
+  bot.sendMessage(chatId, "⬇️ Меню:", {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "💖 Поддержка создателя", callback_data: "donate" }],
+        [{ text: "📢 Основной канал", url: CHANNEL }],
+        userId === ADMIN_ID
+          ? [{ text: "⚙️ Админ панель", callback_data: "admin" }]
+          : []
+      ]
+    }
+  })
 })
 
 // кнопки
-bot.on("callback_query", async q=>{
+bot.on("callback_query", async q => {
   const chatId = q.message.chat.id
   const userId = q.from.id
   const data = q.data
 
-  if(data==="donate"){
-    bot.sendMessage(chatId,`💖 Поддержать создателя\n👉 @AZAkzn1`)
+  if (data === "donate") {
+    bot.sendMessage(chatId, "💖 Поддержка: @AZAkzn1")
   }
 
-  if(data==="admin" && userId===ADMIN_ID){
-    bot.sendMessage(chatId,"⚙️ Админ панель")
+  if (data === "admin" && userId === ADMIN_ID) {
+    bot.sendMessage(chatId,
+`⚙️ Админ панель
+
+👤 Пользователей: ${users.size}`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "📢 Рассылка", callback_data: "broadcast" }],
+            [{ text: "📊 Статистика", callback_data: "stats" }]
+          ]
+        }
+      })
   }
 
-  if(data.startsWith("music_")){
-    const link = decodeURIComponent(data.replace("music_",""))
+  if (data === "stats" && userId === ADMIN_ID) {
+    bot.sendMessage(chatId, `📊 Всего пользователей: ${users.size}`)
+  }
 
-    const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
-    const {data:res} = await axios.get(api)
-
-    await bot.sendAudio(chatId,res.data.music,{title:"TikTok Sound"})
+  if (data === "broadcast" && userId === ADMIN_ID) {
+    bot.sendMessage(chatId, "✉️ Напиши сообщение для всех")
+    adminBroadcast = true
   }
 })
 
 // сообщения
-bot.on("message", async msg=>{
+bot.on("message", async msg => {
   const chatId = msg.chat.id
   const userId = msg.from.id
 
-  if(!msg.text) return
-  const text = msg.text
+  if (!msg.text) return
 
-  if(!users[userId]){
-    users[userId] = true
+  users.add(userId)
+
+  // рассылка
+  if (adminBroadcast && userId === ADMIN_ID) {
+    adminBroadcast = false
+
+    bot.sendMessage(chatId, "🚀 Рассылка началась")
+
+    for (const id of users) {
+      try {
+        await bot.sendMessage(id, msg.text)
+        await sleep(50)
+      } catch {}
+    }
+
+    bot.sendMessage(chatId, "✅ Готово")
+    return
   }
 
-  const links = text.match(/https?:\/\/[^\s]*tiktok\.com\/[^\s]+/g)
-  if(!links) return
+  const links = msg.text.match(/https?:\/\/[^\s]*tiktok\.com\/[^\s]+/g)
+  if (!links) return
 
-  if(antiSpam(userId)) return
+  if (antiSpam(userId)) return
 
-  for(const link of links){
-    addQueue(async ()=>{
-      const userMessageId = msg.message_id
+  for (const link of links) {
 
-      const loading = await bot.sendAnimation(
+    addQueue(async () => {
+
+      // 🎬 GIF загрузки
+      const waitMsg = await bot.sendAnimation(
         chatId,
-        "https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif"
+        "https://www.emojiall.com/images/240/telegram/231b.gif",
+        { caption: "⏳ Загружаю..." }
       )
 
-      try{
-        if(cache.has(link)){
-          await bot.deleteMessage(chatId,loading.message_id)
-          await bot.deleteMessage(chatId,userMessageId)
+      try {
 
-          await bot.sendVideo(chatId,cache.get(link),{
-            caption:`📥 Скачано через @${BOT_USERNAME}`,
-            reply_markup:{
-              inline_keyboard:[
-                [{text:"💾 Скачать", url: cache.get(link)}],
-                [{text:"🎵 Скачать музыку", callback_data:`music_${encodeURIComponent(link)}`}]
-              ]
-            }
-          })
-          return
+        // ⚡ КЭШ
+        if (cache.has(link)) {
+          const cached = cache.get(link)
+
+          await bot.deleteMessage(chatId, waitMsg.message_id)
+          await bot.deleteMessage(chatId, msg.message_id)
+
+          if (cached.type === "video") {
+            return bot.sendVideo(chatId, cached.data.file_id, cached.data.options)
+          }
+
+          if (cached.type === "photo") {
+            return bot.sendMediaGroup(chatId, cached.data)
+          }
         }
 
         const api = `https://www.tikwm.com/api/?url=${encodeURIComponent(link)}`
-        const {data} = await axios.get(api)
+        const { data } = await axios.get(api)
 
-        const video = data.data.hdplay || data.data.play
+        const item = data.data
 
-        await bot.deleteMessage(chatId,loading.message_id)
-        await bot.deleteMessage(chatId,userMessageId)
+        const views = item.play_count
+        const likes = item.digg_count
+        const author = item.author.nickname
 
-        const sent = await bot.sendVideo(chatId, video,{
-          caption:`📥 Скачано через @${BOT_USERNAME}`,
-          reply_markup:{
-            inline_keyboard:[
-              [{text:"💾 Скачать", url: video}],
-              [{text:"🎵 Скачать музыку", callback_data:`music_${encodeURIComponent(link)}`}]
+        await bot.deleteMessage(chatId, waitMsg.message_id)
+        await bot.deleteMessage(chatId, msg.message_id)
+
+        // 🖼 ФОТО
+        if (item.images && item.images.length) {
+
+          const media = item.images.map((img, i) => ({
+            type: "photo",
+            media: img,
+            caption: i === 0 ?
+`📥 @${BOT_USERNAME}
+
+👤 ${author}
+👁 ${views}
+❤️ ${likes}` : undefined
+          }))
+
+          await bot.sendMediaGroup(chatId, media)
+
+          cache.set(link, {
+            type: "photo",
+            data: media
+          })
+
+          return
+        }
+
+        // 🎬 ВИДЕО
+        const video = item.hdplay || item.play
+
+        const sent = await bot.sendVideo(chatId, video, {
+          caption:
+`📥 @${BOT_USERNAME}
+
+👤 ${author}
+👁 ${views}
+❤️ ${likes}`,
+
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "💖 Поддержка", callback_data: "donate" }],
+              [{ text: "📢 Канал", url: CHANNEL }]
             ]
           }
         })
 
-        cache.set(link, sent.video.file_id)
+        cache.set(link, {
+          type: "video",
+          data: {
+            file_id: sent.video.file_id,
+            options: {
+              caption: sent.caption,
+              reply_markup: sent.reply_markup
+            }
+          }
+        })
 
-      }catch{
-        bot.sendMessage(chatId,"❌ Ошибка")
+      } catch (e) {
+        await bot.deleteMessage(chatId, waitMsg.message_id)
+        bot.sendMessage(chatId, "❌ Ошибка загрузки")
       }
+
     })
   }
 })
 
-process.on("unhandledRejection",console.error)
-process.on("uncaughtException",console.error)
+process.on("unhandledRejection", console.error)
+process.on("uncaughtException", console.error)
